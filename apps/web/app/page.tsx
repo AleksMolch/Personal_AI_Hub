@@ -1,44 +1,48 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-type HealthState = "loading" | "ok" | "fail";
-
-interface ApiInfo {
-  version?: string;
-  status?: string;
-}
+import Link from "next/link";
+import { api, getToken, User } from "@/lib/api";
 
 /**
- * Стартовая страница Этапа 1.
- * Показывает статус подключения к собственному backend API.
- * Браузер обращается только к нашему API, никогда напрямую к AI-провайдерам.
+ * Стартовая страница: показывает статус подключения к backend и навигацию.
  */
 export default function Home() {
-  const [state, setState] = useState<HealthState>("loading");
-  const [info, setInfo] = useState<ApiInfo>({});
+  const [ready, setReady] = useState<"loading" | "ok" | "fail">("loading");
+  const [version, setVersion] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
     let cancelled = false;
-
     async function check() {
       try {
-        const [versionRes, readyRes] = await Promise.all([
-          fetch(`${apiUrl}/api/v1/version`),
-          fetch(`${apiUrl}/api/v1/health/ready`),
+        const [v, readyRes] = await Promise.all([
+          fetch(
+            `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/v1/version`,
+          ),
+          fetch(
+            `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/v1/health/ready`,
+          ),
         ]);
-        const version = await versionRes.json();
-        const ready = await readyRes.json();
+        const vJson = await v.json();
+        const rJson = await readyRes.json();
         if (cancelled) return;
-        setInfo({ version: version.version, status: ready.status });
-        setState(readyRes.ok ? "ok" : "fail");
+        setVersion(vJson.version);
+        setReady(rJson.status === "ready" ? "ok" : "fail");
       } catch {
-        if (!cancelled) setState("fail");
+        if (!cancelled) setReady("fail");
+      }
+
+      if (getToken()) {
+        try {
+          const me = await api.me();
+          if (!cancelled) setUser(me);
+        } catch {
+          // токен недействителен — просто не показываем пользователя
+        }
       }
     }
-
-    check();
+    void check();
     return () => {
       cancelled = true;
     };
@@ -51,14 +55,31 @@ export default function Home() {
         Локальная платформа для работы с языковыми моделями и документами.
         Self-hosted, ваши API-ключи хранятся только у вас.
       </p>
+
       <div className="status" role="status" aria-live="polite">
         <span
-          className={`dot ${state === "ok" ? "ok" : state === "fail" ? "fail" : ""}`}
+          className={`dot ${ready === "ok" ? "ok" : ready === "fail" ? "fail" : ""}`}
         />
-        {state === "loading" && "Проверка подключения к API…"}
-        {state === "ok" &&
-          `API готов${info.version ? ` · v${info.version}` : ""}`}
-        {state === "fail" && "API недоступен — проверьте, что стек запущен"}
+        {ready === "loading" && "Проверка подключения к API…"}
+        {ready === "ok" && `API готов${version ? ` · v${version}` : ""}`}
+        {ready === "fail" && "API недоступен — проверьте, что стек запущен"}
+      </div>
+
+      <div className="card">
+        {user ? (
+          <>
+            <p>
+              Вы вошли как <strong>{user.username}</strong>.
+            </p>
+            <div className="row">
+              <Link href="/providers">Настроить провайдеров</Link>
+            </div>
+          </>
+        ) : (
+          <div className="row">
+            <Link href="/login">Войти</Link>
+          </div>
+        )}
       </div>
     </main>
   );

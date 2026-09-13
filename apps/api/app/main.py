@@ -1,7 +1,7 @@
 """Создание FastAPI-приложения и его жизненный цикл.
 
-Настраивает structured logging, CORS, middleware request-id и подключает
-роутеры. При старте в production валидирует master key.
+Настраивает structured logging, CORS, middleware request-id, обработчики ошибок
+и подключает роутеры. При старте в production валидирует master key.
 """
 from __future__ import annotations
 
@@ -9,13 +9,22 @@ import logging
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from personal_hub.config import get_settings
 from personal_hub.logging_setup import configure_logging, request_id_var
+from personal_hub.models import User
+from personal_hub.providers.errors import ProviderError
+from personal_hub.security.auth import hash_password
+from sqlalchemy import func, select
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.api.auth import router as auth_router
 from app.api.health import router as health_router
+from app.api.models import router as models_router
+from app.api.providers import router as providers_router
 
 logger = logging.getLogger("api")
 
@@ -34,6 +43,69 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             request_id_var.reset(token)
 
 
+def _error_payload(
+    code: str, message: str, retryable: bool = False, details: dict | None = None
+) -> dict:
+    """Стабильный формат тела ошибки (см. ARCHITECTURE)."""
+    return {
+        "error": {
+            "code": code,
+            "message": message,
+            "request_id": request_id_var.get(),
+            "retryable": retryable,
+            "details": details or {},
+        }
+    }
+
+
+def _error_body(
+    code: str, message: str, retryable: bool = False, details: dict | None = None
+) -> JSONResponse:
+    """JSONResponse со стабильным форматом ошибки и статусом по коду."""
+    return JSONResponse(
+        status_code=_code_to_status(code),
+        content=_error_payload(code, message, retryable, details),
+    )
+
+
+def _code_to_status(code: str) -> int:
+    if code in {"PROVIDER_UNAUTHORIZED"}:
+        return 401
+    if code in {"PROVIDER_INSUFFICIENT_BALANCE"}:
+        return 402
+    if code in {"PROVIDER_FORBIDDEN"}:
+        return 403
+    if code in {"MODEL_NOT_FOUND"}:
+        return 404
+    if code in {"PROVIDER_RATE_LIMITED"}:
+        return 429
+    return 502
+
+
+async def _bootstrap_admin_from_env() -> None:
+    """Создаёт администратора из env (ADMIN_USERNAME/ADMIN_PASSWORD) при пустой БД.
+
+    Нужен для автоматизированной установки и CI; пароль не логируется.
+    """
+    settings = get_settings()
+    username = getattr(settings, "admin_username", "") or ""
+    password = getattr(settings, "admin_password", "") or ""
+    if not username or not password:
+        return
+    from personal_hub.db.engine import get_session_factory
+
+    factory = get_session_factory()
+    async with factory() as session:
+        count = (await session.execute(select(func.count()).select_from(User))).scalar_one()
+        if count != 0:
+            return
+        session.add(
+            User(username=username, password_hash=hash_password(password), is_admin=True)
+        )
+        await session.commit()
+        logger.info("bootstrap_admin_env", extra={"extra_fields": {"username": username}})
+
+
 def create_app() -> FastAPI:
     """Создаёт и конфигурирует экземпляр FastAPI."""
     settings = get_settings()
@@ -42,6 +114,7 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         settings.validate_master_key()
+        await _bootstrap_admin_from_env()
         logger.info("api_started", extra={"extra_fields": {"event": "startup"}})
         yield
 
@@ -63,7 +136,29 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(RequestContextMiddleware)
 
+    @app.exception_handler(ProviderError)
+    async def _provider_error(_: Request, exc: ProviderError) -> JSONResponse:
+        return _error_body(exc.code, exc.message, exc.retryable)
+
+    @app.exception_handler(HTTPException)
+    async def _http_error(_: Request, exc: HTTPException) -> JSONResponse:
+        retryable = exc.status_code in {429} or exc.status_code >= 500
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=_error_payload(f"HTTP_{exc.status_code}", str(exc.detail), retryable),
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content=_error_payload("VALIDATION_ERROR", "Некорректные данные запроса.", False),
+        )
+
     app.include_router(health_router)
+    app.include_router(auth_router)
+    app.include_router(providers_router)
+    app.include_router(models_router)
 
     return app
 

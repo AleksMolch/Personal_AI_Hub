@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     # Мастер-ключ шифрования. В production не должен быть пустым/placeholder.
     app_master_key: str = ""
 
+    # Автосоздание первого администратора (опционально, для CI/автоматизации).
+    admin_username: str = ""
+    admin_password: str = ""
+
     # Инфраструктура.
     database_url: str = "postgresql+asyncpg://app:app@postgres:5432/app"
     valkey_url: str = "redis://valkey:6379/0"

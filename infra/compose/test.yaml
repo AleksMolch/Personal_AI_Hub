@@ -1,0 +1,33 @@
+# Test profile: запускает интеграционные тесты против изолированного Postgres.
+# Использование: docker compose -f compose.yaml -f infra/compose/test.yaml run --rm test
+
+services:
+  test:
+    image: personal-ai-hub-api
+    volumes:
+      - .:/work
+    working_dir: /work
+    environment:
+      PYTHONPATH: /work/packages/core:/work/apps/api:/work/apps/worker
+      DATABASE_URL: postgresql+asyncpg://app:testpass@test-postgres:5432/app_test
+      APP_MASTER_KEY: test_master_key_32_bytes_minimum
+      APP_ENV: test
+    command:
+      - sh
+      - -c
+      - "pip install -q -r apps/api/requirements-dev.txt && cd apps/api && alembic upgrade head && cd /work && pytest tests/integration -q"
+    depends_on:
+      test-postgres:
+        condition: service_healthy
+
+  test-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: testpass
+      POSTGRES_DB: app_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 12

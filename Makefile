@@ -57,7 +57,8 @@ test-unit: ## Быстрые тесты без инфраструктуры
 		python:3.12-slim sh -c "pip install -q -r apps/api/requirements-dev.txt && pytest tests/unit -q"
 
 test-integration: ## Интеграционные тесты (изолированная инфраструктура)
-	@$(COMPOSE) -f compose.yaml -f infra/compose/test.yaml run --rm --build api pytest tests/integration -q
+	@docker compose build api
+	@docker compose -f compose.yaml -f infra/compose/test.yaml run --rm test
 
 test-e2e: ## E2E Playwright
 	@cd apps/web && pnpm exec playwright test

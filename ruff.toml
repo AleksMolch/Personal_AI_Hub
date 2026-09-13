@@ -11,4 +11,7 @@ exclude = [
 
 [lint]
 select = ["E", "F", "I", "W", "B", "UP", "N", "RUF"]
-ignore = ["RUF001", "RUF002", "RUF003"]  # кириллица в docstrings/строках разрешена
+ignore = [
+    "RUF001", "RUF002", "RUF003",  # кириллица в docstrings/строках разрешена
+    "B008",  # Depends в аргументах — идиоматично для FastAPI
+]

@@ -9,20 +9,26 @@
 
 ## Вертикальные срезы
 
-### 1. Репозиторий и локальный запуск — 🔄 (готово для MVP-скелета)
+### 1. Репозиторий и локальный запуск — ✅
 - [x] Монорепозиторий, Makefile, compose.yaml, `.env.example`
 - [x] Сервисы web, api, worker, PostgreSQL, Valkey, Qdrant
 - [x] `GET /api/v1/version`, `health/live`, `health/ready`
 - [x] Alembic-миграции (авто и идемпотентно), structured JSON-логи
 - [x] Healthchecks всех сервисов (проверено `docker compose up`)
 - [x] Smoke-скрипт (`make smoke`)
-- [ ] CI: lint/types/unit/build/secret-scan (конфиг создан, прогон в GitHub — при первом push)
-- [ ] Windows/Linux clean install проверка
+- [x] CI: lint/types/unit/build/secret-scan
+- [ ] Windows/Linux clean install проверка (срез 8)
 
-### 2. Авторизация и настройки — ⬜
-- [ ] Local-first bootstrap admin
-- [ ] Шифрование provider keys (мастер-ключ)
-- [ ] CRUD provider + test connection + presets
+### 2. Авторизация и настройки — ✅
+- [x] Local-first bootstrap admin (`POST /auth/bootstrap`, только при пустой БД)
+- [x] Вход и JWT (`/auth/login`, `/auth/me`), Argon2id-пароли
+- [x] Шифрование provider keys мастер-ключом (Fernet), маска в UI
+- [x] CRUD провайдеров + presets (OpenRouter/RouterAI/Selectel/OpenAI-compatible)
+- [x] Проверка соединения (`POST /providers/{id}/test`, GET /models, без платных вызовов)
+- [x] Синхронизация моделей (`POST /providers/{id}/sync-models`, upsert)
+- [x] Каталог моделей (`GET /models?capability=`)
+- [x] Нормализация ошибок провайдеров (401/402/403/404/429/5xx) и стабильный формат ошибки
+- [x] UI: страница входа и управление провайдерами
 
 ### 3. Модели и streaming chat — ⬜
 ### 4. Usage, цены и бюджеты — ⬜
@@ -39,5 +45,7 @@
 - [ ] Backup/restore drill — скрипты есть, drill на срезе 8
 
 ## Известные ограничения
+- Celery-логи пока в дефолтном формате (JSON включу вместе с реальными задачами).
 - OCR-профиль и таблицы (DuckDB) реализуются на срезах 6–7.
-- Аутентификация (admin bootstrap) — следующий срез.
+- Streaming chat, usage/бюджеты, jobs/assets — следующие срезы.
+- Проверка соединения использует только GET /models (не платные вызовы).
