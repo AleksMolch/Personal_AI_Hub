@@ -7,12 +7,12 @@ base URL по умолчанию. Добавление video-адаптера н
 """
 from __future__ import annotations
 
-from personal_hub.providers.base import ProviderAdapter
+from personal_hub.providers.base import ChatProvider
 from personal_hub.providers.openai_compatible import OpenAICompatibleAdapter
 
 _openai_compatible = OpenAICompatibleAdapter()
 
-PROVIDER_ADAPTERS: dict[str, ProviderAdapter] = {
+PROVIDER_ADAPTERS: dict[str, ChatProvider] = {
     "openai_compatible": _openai_compatible,
     "openrouter": _openai_compatible,
     "routerai": _openai_compatible,
@@ -23,7 +23,7 @@ PROVIDER_ADAPTERS: dict[str, ProviderAdapter] = {
 SUPPORTED_PROVIDER_TYPES = frozenset(PROVIDER_ADAPTERS)
 
 
-def get_adapter(provider_type: str) -> ProviderAdapter:
+def get_adapter(provider_type: str) -> ChatProvider:
     """Возвращает адаптер по типу провайдера.
 
     Бросает ValueError для неизвестного типа, чтобы API вернул стабильную

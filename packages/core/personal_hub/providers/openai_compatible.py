@@ -6,14 +6,24 @@
 """
 from __future__ import annotations
 
+import json
 import time
+from collections.abc import AsyncIterator
 
 import httpx
 
-from personal_hub.providers.base import Capability, HealthResult, ProviderConnection, RemoteModel
+from personal_hub.providers.base import (
+    Capability,
+    ChatChunk,
+    ChatRequest,
+    HealthResult,
+    ProviderConnection,
+    RemoteModel,
+)
 from personal_hub.providers.errors import ProviderError, normalize_http_status
 
 DEFAULT_TIMEOUT_SECONDS = 15.0
+STREAM_READ_TIMEOUT_SECONDS = 180.0
 
 # Понятные сообщения для пользователя по нормализованному коду.
 _MESSAGES: dict[str, str] = {
@@ -87,3 +97,51 @@ class OpenAICompatibleAdapter:
                 )
             )
         return models
+
+    async def stream_chat(
+        self, connection: ProviderConnection, request: ChatRequest
+    ) -> AsyncIterator[ChatChunk]:
+        """Потоковый чат через POST /chat/completions (SSE).
+
+        Возвращает части текста; usage приходит в финальном chunk у совместимых
+        провайдеров. Ошибки нормализуются в ProviderError.
+        """
+        url = f"{connection.base_url.rstrip('/')}/chat/completions"
+        messages: list[dict] = [{"role": m.role, "content": m.content} for m in request.messages]
+        if request.system:
+            messages.insert(0, {"role": "system", "content": request.system})
+        payload: dict = {"model": request.model, "messages": messages, "stream": True}
+        if request.temperature is not None:
+            payload["temperature"] = request.temperature
+        if request.max_tokens is not None:
+            payload["max_tokens"] = request.max_tokens
+
+        timeout = httpx.Timeout(DEFAULT_TIMEOUT_SECONDS, read=STREAM_READ_TIMEOUT_SECONDS)
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream(
+                    "POST", url, json=payload, headers=self._headers(connection)
+                ) as resp:
+                    if resp.status_code != 200:
+                        raise normalize_http_status(resp.status_code)
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[len("data:") :].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            obj = json.loads(data)
+                        except json.JSONDecodeError:
+                            continue
+                        choices = obj.get("choices") or [{}]
+                        delta = (choices[0].get("delta") or {}) if choices else {}
+                        yield ChatChunk(
+                            content_delta=delta.get("content") or "",
+                            usage=obj.get("usage"),
+                            finish_reason=(choices[0].get("finish_reason") if choices else None),
+                        )
+        except httpx.TimeoutException as exc:
+            raise ProviderError("PROVIDER_TIMEOUT", "Таймаут провайдера", True) from exc
+        except httpx.RequestError as exc:
+            raise ProviderError("PROVIDER_UNREACHABLE", "Провайдер недоступен") from exc

@@ -32,8 +32,8 @@ async def clean_db() -> None:
     async with engine.begin() as conn:
         await conn.execute(
             text(
-                "TRUNCATE users, provider_credentials, model_profiles "
-                "RESTART IDENTITY CASCADE"
+                "TRUNCATE users, provider_credentials, model_profiles, "
+                "conversations, messages RESTART IDENTITY CASCADE"
             )
         )
     yield

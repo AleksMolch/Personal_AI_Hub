@@ -5,6 +5,7 @@ Capabilities — данные (enum), по которым UI строит инт
 """
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
@@ -55,6 +56,34 @@ class RemoteModel:
     output_limit: int | None = None
 
 
+@dataclass
+class ChatMessage:
+    """Сообщение для отправки провайдеру."""
+
+    role: str
+    content: str
+
+
+@dataclass
+class ChatRequest:
+    """Запрос на генерацию чата."""
+
+    model: str
+    messages: list[ChatMessage]
+    system: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+
+
+@dataclass
+class ChatChunk:
+    """Часть потокового ответа провайдера."""
+
+    content_delta: str = ""
+    usage: dict | None = None
+    finish_reason: str | None = None
+
+
 class ProviderAdapter(Protocol):
     """Контракт адаптера провайдера.
 
@@ -64,3 +93,16 @@ class ProviderAdapter(Protocol):
 
     async def health(self, connection: ProviderConnection) -> HealthResult: ...
     async def list_models(self, connection: ProviderConnection) -> list[RemoteModel]: ...
+
+
+class ChatProvider(ProviderAdapter, Protocol):
+    """Адаптер с поддержкой потокового чата.
+
+    `stream_chat` описан как обычный `def` с возвратом `AsyncIterator`,
+    поскольку реализация — async-генератор (вызов возвращает итератор,
+    а не корутину).
+    """
+
+    def stream_chat(
+        self, connection: ProviderConnection, request: ChatRequest
+    ) -> AsyncIterator[ChatChunk]: ...

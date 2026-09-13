@@ -124,3 +124,59 @@ class ModelProfileOut(BaseModel):
     context_limit: int | None
     output_limit: int | None
     enabled: bool
+
+
+# ---- Conversations ----------------------------------------------------------
+
+
+class ConversationCreate(BaseModel):
+    title: str | None = Field(default=None, max_length=256)
+    model_profile_id: uuid.UUID | None = None
+    system_instruction: str | None = None
+
+
+class ConversationUpdate(BaseModel):
+    title: str | None = Field(default=None, max_length=256)
+    archived: bool | None = None
+    model_profile_id: uuid.UUID | None = None
+    system_instruction: str | None = None
+
+
+class MessageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    conversation_id: uuid.UUID
+    role: str
+    content: str
+    parent_id: uuid.UUID | None
+    status: str
+    model_snapshot: dict
+    error_code: str | None
+    created_at: datetime
+
+
+class ConversationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    title: str
+    model_profile_id: uuid.UUID | None
+    system_instruction: str | None
+    archived: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversationDetail(ConversationOut):
+    messages: list[MessageOut] = Field(default_factory=list)
+
+
+class MessageCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=200_000)
+    model_profile_id: uuid.UUID | None = None
+
+
+class MessageCreateResponse(BaseModel):
+    generation_id: uuid.UUID
+    message: MessageOut

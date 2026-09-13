@@ -22,9 +22,12 @@ from sqlalchemy import func, select
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.auth import router as auth_router
+from app.api.conversations import router as conversations_router
+from app.api.generations import router as generations_router
 from app.api.health import router as health_router
 from app.api.models import router as models_router
 from app.api.providers import router as providers_router
+from app.chat_worker import mark_interrupted_generations
 
 logger = logging.getLogger("api")
 
@@ -115,6 +118,7 @@ def create_app() -> FastAPI:
     async def lifespan(_: FastAPI):
         settings.validate_master_key()
         await _bootstrap_admin_from_env()
+        await mark_interrupted_generations()
         logger.info("api_started", extra={"extra_fields": {"event": "startup"}})
         yield
 
@@ -159,6 +163,8 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(providers_router)
     app.include_router(models_router)
+    app.include_router(conversations_router)
+    app.include_router(generations_router)
 
     return app
 

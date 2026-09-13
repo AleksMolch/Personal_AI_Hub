@@ -30,7 +30,18 @@
 - [x] Нормализация ошибок провайдеров (401/402/403/404/429/5xx) и стабильный формат ошибки
 - [x] UI: страница входа и управление провайдерами
 
-### 3. Модели и streaming chat — ⬜
+### 3. Модели и streaming chat — ✅
+- [x] Conversations/Messages (роли, статусы, parent_id для ветвления, model_snapshot)
+- [x] Потоковый чат: `POST /conversations/{id}/messages` → `GET /generations/{id}/events` (SSE)
+- [x] События SSE: started/content.delta/completed/failed/cancelled + heartbeat
+- [x] Отмена генерации (`POST /generations/{id}/cancel`)
+- [x] CRUD диалогов, поиск по списку, архив, экспорт Markdown/JSON
+- [x] Chat-адаптер (OpenAI-compatible) с SSE-парсингом
+- [x] Восстановление после рестарта (streaming → interrupted)
+- [x] UI: страница чата с потоковым выводом, выбором модели и отменой
+- [ ] Редактирование сообщения с ветвлением (parent_id заложен, UI позже)
+- [ ] Поиск по сообщениям (позже)
+
 ### 4. Usage, цены и бюджеты — ⬜
 ### 5. Jobs и Assets — ⬜
 ### 6. Документы и RAG — ⬜
@@ -47,5 +58,8 @@
 ## Известные ограничения
 - Celery-логи пока в дефолтном формате (JSON включу вместе с реальными задачами).
 - OCR-профиль и таблицы (DuckDB) реализуются на срезах 6–7.
-- Streaming chat, usage/бюджеты, jobs/assets — следующие срезы.
-- Проверка соединения использует только GET /models (не платные вызовы).
+- Usage/бюджеты, jobs/assets — следующие срезы.
+- SSE-аутентификация через query-параметр token (EventSource не умеет заголовки);
+  для localhost приемлемо, для LAN нужно перейти на cookie или short-lived token.
+- Event-буфер генераций — in-memory (однопроцессный MVP); при рестарте незавершённые
+  генерации помечаются interrupted.

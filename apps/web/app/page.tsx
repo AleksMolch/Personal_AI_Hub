@@ -72,6 +72,7 @@ export default function Home() {
               Вы вошли как <strong>{user.username}</strong>.
             </p>
             <div className="row">
+              <Link href="/chat">Открыть чат</Link>
               <Link href="/providers">Настроить провайдеров</Link>
             </div>
           </>

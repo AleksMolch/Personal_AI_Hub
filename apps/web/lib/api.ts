@@ -77,6 +77,42 @@ export interface Preset {
   currency: string;
 }
 
+export interface Conversation {
+  id: string;
+  title: string;
+  model_profile_id: string | null;
+  system_instruction: string | null;
+  archived: boolean;
+}
+
+export interface Message {
+  id: string;
+  conversation_id: string;
+  role: string;
+  content: string;
+  parent_id: string | null;
+  status: string;
+  model_snapshot: Record<string, unknown>;
+  error_code: string | null;
+}
+
+export interface ConversationDetail extends Conversation {
+  messages: Message[];
+}
+
+export interface ModelProfile {
+  id: string;
+  external_model_id: string;
+  display_name: string;
+  capabilities: string[];
+}
+
+/** URL для EventSource (SSE) — токен передаётся query-параметром. */
+export function eventSourceUrl(generationId: string): string {
+  const token = getToken();
+  return `${API_URL}/api/v1/generations/${generationId}/events?token=${encodeURIComponent(token ?? "")}`;
+}
+
 export const api = {
   login: (username: string, password: string) =>
     request<TokenResponse>("/api/v1/auth/login", {
@@ -111,6 +147,34 @@ export const api = {
     ),
   syncModels: (id: string) =>
     request<unknown[]>(`/api/v1/providers/${id}/sync-models`, {
+      method: "POST",
+    }),
+  models: () => request<ModelProfile[]>("/api/v1/models"),
+  conversations: () => request<Conversation[]>("/api/v1/conversations"),
+  createConversation: (input: { title?: string; model_profile_id?: string }) =>
+    request<Conversation>("/api/v1/conversations", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  getConversation: (id: string) =>
+    request<ConversationDetail>(`/api/v1/conversations/${id}`),
+  sendMessage: (
+    conversationId: string,
+    content: string,
+    modelProfileId?: string,
+  ) =>
+    request<{ generation_id: string }>(
+      `/api/v1/conversations/${conversationId}/messages`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          content,
+          model_profile_id: modelProfileId ?? null,
+        }),
+      },
+    ),
+  cancelGeneration: (id: string) =>
+    request<{ status: string }>(`/api/v1/generations/${id}/cancel`, {
       method: "POST",
     }),
 };
