@@ -1,0 +1,57 @@
+[
+  {
+    "file": "00_START_HERE.md",
+    "sha256": "86ddb6657e1ebf34d6f6d2e2be9e6282aa26cfc1691ed63f615e72a016d7b4dc",
+    "bytes": 4143
+  },
+  {
+    "file": "AGENTS.md",
+    "sha256": "b174047e41813926c6efceb61d0482369261a3bb37b87e07e72c762ebc16a676",
+    "bytes": 9984
+  },
+  {
+    "file": "AI_MAINTENANCE.md",
+    "sha256": "d3732bfe55fbe3463857933d41e4f31d46603f8ff31d91af6fae78fe40a388ea",
+    "bytes": 6577
+  },
+  {
+    "file": "AI_VSCODE_PROMPT.md",
+    "sha256": "efcedcb1fb3280447d54c80d7c06af664e6ac3f337d62b76346c8066f3fe5c42",
+    "bytes": 6663
+  },
+  {
+    "file": "ARCHITECTURE.md",
+    "sha256": "88a43173e991c9fdc7aab8ebe26655b6bde3763aeeeafd1563f2b7935bab81b9",
+    "bytes": 9326
+  },
+  {
+    "file": "README.md",
+    "sha256": "a9d0a7c9e26dea1dc849b7cd9cf1f1f7d5e0a5f160901de7efaaab6904ab48da",
+    "bytes": 7700
+  },
+  {
+    "file": "README_staff.md",
+    "sha256": "fd1f5209a5866e82356d8a042396db940cc924ef205348519b1998f43789cfc6",
+    "bytes": 7478
+  },
+  {
+    "file": "ROADMAP.md",
+    "sha256": "f16dc73426c3321d4a720e7c04085fe459e3b30a9318e000216061f2d1b6518a",
+    "bytes": 6298
+  },
+  {
+    "file": "SECURITY_AND_CONFIG.md",
+    "sha256": "94b7a53d2d78dc1b62d7b1a59e3980f410b8cbfe21e21c7e1805820add5e384e",
+    "bytes": 4760
+  },
+  {
+    "file": "SPECIFICATION.md",
+    "sha256": "cced0e38e2d174c25bbd06472edf1c8d63e7870b3c53f2d1f28ba07a8f42c096",
+    "bytes": 9216
+  },
+  {
+    "file": "TESTING.md",
+    "sha256": "cea92e6f33d602da7cf8f3bc4a2a5e822775e8509dd5ae41674abe13b75c2b53",
+    "bytes": 6538
+  }
+]

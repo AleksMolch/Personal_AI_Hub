@@ -1,0 +1,84 @@
+# CI: линтеры, типизация, unit-тесты, сборка, secret scan.
+# Live-тесты НЕ запускаются (RUN_LIVE_TESTS=0 по умолчанию).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  backend-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v3
+        with:
+          src: "apps/api packages/core apps/worker"
+
+  backend-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r apps/api/requirements-dev.txt
+      - run: mypy apps/api packages/core apps/worker
+        env:
+          PYTHONPATH: "packages/core:apps/api:apps/worker"
+
+  backend-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r apps/api/requirements-dev.txt
+      - run: pytest tests/unit -q
+        env:
+          PYTHONPATH: "packages/core:apps/api:apps/worker"
+          APP_MASTER_KEY: ci_test_secret_key
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+        working-directory: apps/web
+      - run: npm run lint
+        working-directory: apps/web
+      - run: npx tsc --noEmit
+        working-directory: apps/web
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose config validation
+        run: |
+          echo "APP_MASTER_KEY=ci_secret" > .env
+          echo "POSTGRES_PASSWORD=ci_secret" >> .env
+          docker compose config -q
+      - name: Build images
+        run: docker compose build api web

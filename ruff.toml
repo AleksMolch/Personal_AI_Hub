@@ -1,0 +1,14 @@
+# Конфигурация Ruff: линтер backend (apps/api, packages/core, apps/worker).
+line-length = 100
+target-version = "py312"
+
+exclude = [
+    "apps/web",
+    "node_modules",
+    ".venv",
+    "migrations/versions",
+]
+
+[lint]
+select = ["E", "F", "I", "W", "B", "UP", "N", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # кириллица в docstrings/строках разрешена

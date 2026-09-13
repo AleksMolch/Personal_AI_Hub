@@ -1,0 +1,25 @@
+# Исключение из Docker build-контекста: локальные секреты и артефакты.
+# Контекст — корень репозитория; нужные поддеревья (apps, packages, infra)
+# копируются явно в Dockerfile.
+
+.git
+.gitignore
+.DS_Store
+.env
+.env.*
+*.env
+
+**/node_modules
+**/.next
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+
+backups
+data
+volumes
+
+*.md
+*.zip

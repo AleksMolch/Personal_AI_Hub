@@ -1,0 +1,51 @@
+# Игнорирование локальных секретов и артефактов сборки.
+# Секреты и runtime-данные никогда не должны попадать в Git.
+
+# Secrets / env
+.env
+.env.local
+.env.*.local
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+dist/
+build/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Docker / data volumes
+data/
+volumes/
+*.sql
+*.dump
+*.tar.gz
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+
+# Backups (содержат данные, не должны коммититься)
+backups/
+
+# Handoff-архив (дублирует уже извлечённые документы)
+*.zip
