@@ -35,6 +35,18 @@ async def _setup(client: AsyncClient, mock_provider, models_body: str) -> tuple[
 
     catalog = await client.get("/api/v1/models", headers=headers)
     model_id = catalog.json()[0]["id"]
+
+    # Цена обязательна для генерации.
+    await client.post(
+        "/api/v1/prices",
+        json={
+            "model_profile_id": model_id,
+            "input_per_million": "1.00",
+            "output_per_million": "2.00",
+            "currency": "USD",
+        },
+        headers=headers,
+    )
     return headers, model_id
 
 

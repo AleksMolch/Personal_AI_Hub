@@ -42,7 +42,19 @@
 - [ ] Редактирование сообщения с ветвлением (parent_id заложен, UI позже)
 - [ ] Поиск по сообщениям (позже)
 
-### 4. Usage, цены и бюджеты — ⬜
+### 4. Usage, цены и бюджеты — ✅
+- [x] UsageRecord (units_json, cost_amount Decimal/NUMERIC, cost_state, price_snapshot_id, fx_rate_id)
+- [x] PriceSnapshot (versioned, валюта, effective_at, источник manual/api/url, вход/выход/кэш за 1M)
+- [x] FxRate (курс + источник + время) и конвертация без смешивания валют
+- [x] Бюджет: дневной/месячный hard limit, резервирование до вызова (транзакционно)
+- [x] Settlement после ответа; release при отмене/ошибке; ленивый reconcile просроченных
+- [x] estimated vs actual (usage от провайдера → actual, иначе estimated)
+- [x] Эндпоинты: /usage/summary, /usage/records (pagination), GET/PUT /budgets, GET/POST /prices
+- [x] Интеграция с чатом: цена обязательна, бюджет блокирует до провайдера (402 BUDGET_EXCEEDED)
+- [x] UI: dashboard расходов (день/месяц, токены, лимиты) + форма бюджета
+- [ ] Reconciliation в отдельную фоновую задачу (сейчас лениво при резервировании)
+- [ ] Импорт цен из API провайдера (сейчас manual)
+
 ### 5. Jobs и Assets — ⬜
 ### 6. Документы и RAG — ⬜
 ### 7. Таблицы и OCR — ⬜
@@ -58,8 +70,9 @@
 ## Известные ограничения
 - Celery-логи пока в дефолтном формате (JSON включу вместе с реальными задачами).
 - OCR-профиль и таблицы (DuckDB) реализуются на срезах 6–7.
-- Usage/бюджеты, jobs/assets — следующие срезы.
 - SSE-аутентификация через query-параметр token (EventSource не умеет заголовки);
   для localhost приемлемо, для LAN нужно перейти на cookie или short-lived token.
 - Event-буфер генераций — in-memory (однопроцессный MVP); при рестарте незавершённые
   генерации помечаются interrupted.
+- Цены вводятся вручную (импорт из API провайдера — позже). Все стоимости считаются
+  в базовой валюте бюджета с сохранением provenance (price_snapshot_id, fx_rate_id).

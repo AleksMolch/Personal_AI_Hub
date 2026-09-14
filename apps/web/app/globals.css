@@ -278,3 +278,21 @@ header.row {
 .composer input {
   flex: 1;
 }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.big {
+  font-size: 1.6rem;
+  margin: 0.25rem 0;
+  color: var(--fg);
+}
+
+.record {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+}

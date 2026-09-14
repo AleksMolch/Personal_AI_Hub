@@ -1,7 +1,8 @@
 """Фоновая генерация чата (worker-задача внутри процесса API).
 
 Запускается как asyncio-задача из POST /conversations/{id}/messages, стримит
-ответ провайдера, публикует SSE-события и сохраняет сообщение в БД.
+ответ провайдера, публикует SSE-события, сохраняет сообщение и фиксирует
+расход (UsageRecord) с закрытием резервирования.
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ from personal_hub.models import Message, MessageStatus
 from personal_hub.providers.base import ChatProvider, ChatRequest, ProviderConnection
 from personal_hub.providers.errors import ProviderError
 
+from app.billing import BillingContext, finalize_generation, release_reservation
 from app.generation_manager import GenerationState, generation_manager
 
 logger = logging.getLogger("api.chat")
@@ -24,8 +26,13 @@ async def run_generation(
     connection: ProviderConnection,
     adapter: ChatProvider,
     request: ChatRequest,
+    *,
+    user_id: uuid.UUID,
+    provider_id: uuid.UUID,
+    model_profile_id: uuid.UUID,
+    billing: BillingContext | None,
 ) -> None:
-    """Выполняет генерацию: стримит, публикует события и фиксирует результат.
+    """Выполняет генерацию: стримит, публикует события, фиксирует расход.
 
     Результат пишется в message с id = generation_id. Ошибки провайдера
     нормализуются в stable code и публикуются как generation.failed.
@@ -39,6 +46,7 @@ async def run_generation(
     usage: dict | None = None
     status = MessageStatus.COMPLETED.value
     error_code: str | None = None
+    completed = False
 
     try:
         async for chunk in adapter.stream_chat(connection, request):
@@ -51,6 +59,7 @@ async def run_generation(
                 )
             if chunk.usage:
                 usage = chunk.usage
+        completed = True
         await generation_manager.publish(
             state, {"event": "generation.completed", "usage": usage}
         )
@@ -84,6 +93,16 @@ async def run_generation(
     finally:
         content = "".join(parts)
         await _persist_result(generation_id, content, status, error_code, usage)
+        if billing is not None:
+            await _finalize_billing(
+                user_id=user_id,
+                provider_id=provider_id,
+                model_profile_id=model_profile_id,
+                message_id=generation_id,
+                usage=usage,
+                billing=billing,
+                completed=completed,
+            )
         await generation_manager.finish(state)
 
 
@@ -107,6 +126,35 @@ async def _persist_result(
             snapshot = dict(message.model_snapshot or {})
             snapshot["usage"] = usage
             message.model_snapshot = snapshot
+        await session.commit()
+
+
+async def _finalize_billing(
+    *,
+    user_id: uuid.UUID,
+    provider_id: uuid.UUID,
+    model_profile_id: uuid.UUID,
+    message_id: uuid.UUID,
+    usage: dict | None,
+    billing: BillingContext,
+    completed: bool,
+) -> None:
+    """Фиксирует расход или освобождает резервирование."""
+    factory = get_session_factory()
+    async with factory() as session:
+        if completed:
+            await finalize_generation(
+                session,
+                user_id=user_id,
+                provider_id=provider_id,
+                model_profile_id=model_profile_id,
+                message_id=message_id,
+                usage=usage,
+                billing=billing,
+                provider_request_id=None,
+            )
+        else:
+            await release_reservation(session, billing.reservation_id)
         await session.commit()
 
 

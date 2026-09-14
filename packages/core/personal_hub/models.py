@@ -1,19 +1,22 @@
-"""Доменные ORM-модели: пользователь, провайдер, модель, диалог, сообщение.
+"""Доменные ORM-модели: пользователь, провайдер, модель, диалог, сообщение,
+цены, валютные курсы, бюджеты и записи расходов.
 
 Провайдер хранит только зашифрованный ключ (encrypted_secret); открытый ключ
 никогда не сохраняется и не возвращается API. Capabilities модели — данные,
-а не условные ветки UI.
+а не условные ветки UI. Все денежные значения — Decimal/NUMERIC.
 """
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from personal_hub.db.base import Base, TimestampMixin
+from personal_hub.db.base import Base, TimestampMixin, utcnow
 
 
 class MessageStatus(StrEnum):
@@ -25,6 +28,23 @@ class MessageStatus(StrEnum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     INTERRUPTED = "interrupted"
+
+
+class CostState(StrEnum):
+    """Состояние расчёта стоимости записи расхода."""
+
+    ESTIMATED = "estimated"
+    ACTUAL = "actual"
+    RECONCILED = "reconciled"
+    UNKNOWN = "unknown"
+
+
+class ReservationStatus(StrEnum):
+    """Жизненный цикл резервирования стоимости."""
+
+    ACTIVE = "active"
+    SETTLED = "settled"
+    CANCELLED = "cancelled"
 
 
 class User(Base, TimestampMixin):
@@ -146,3 +166,134 @@ class Message(Base, TimestampMixin):
     # Снапшот модели/провайдера на момент генерации (для прозрачности истории).
     model_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class PriceSnapshot(Base, TimestampMixin):
+    """Версионированная цена модели (за 1M токенов).
+
+    Обновление цены создаёт новую запись и не меняет исторические UsageRecord.
+    """
+
+    __tablename__ = "price_snapshots"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    model_profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("model_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    currency: Mapped[str] = mapped_column(String(3), default="USD", nullable=False)
+    input_per_million: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    output_per_million: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    cache_read_per_million: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
+    cache_write_per_million: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
+    # Источник цены: manual | api | url.
+    source: Mapped[str] = mapped_column(String(16), default="manual", nullable=False)
+    source_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    effective_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+
+class FxRate(Base):
+    """Валютный курс с источником и временем фиксации."""
+
+    __tablename__ = "fx_rates"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    from_currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    to_currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    rate: Mapped[Decimal] = mapped_column(Numeric(20, 10), nullable=False)
+    source: Mapped[str] = mapped_column(String(64), default="manual", nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+
+class Budget(Base):
+    """Дневной и месячный hard limit пользователя (одна запись на пользователя)."""
+
+    __tablename__ = "budgets"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    daily_limit: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
+    monthly_limit: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
+    currency: Mapped[str] = mapped_column(String(3), default="USD", nullable=False)
+
+
+class UsageRecord(Base):
+    """Запись расхода (токены и стоимость) по одной генерации."""
+
+    __tablename__ = "usage_records"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    provider_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("provider_credentials.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    model_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("model_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
+    )
+    # Токены: input/output/cache_read/cache_write/reasoning.
+    units_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    cost_amount: Mapped[Decimal] = mapped_column(Numeric(20, 10), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    cost_state: Mapped[str] = mapped_column(
+        String(16), default=CostState.ESTIMATED.value, nullable=False
+    )
+    price_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("price_snapshots.id", ondelete="SET NULL"), nullable=True
+    )
+    fx_rate_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fx_rates.id", ondelete="SET NULL"), nullable=True
+    )
+    provider_request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False, index=True
+    )
+
+
+class CostReservation(Base):
+    """Резервирование оценочной суммы до вызова провайдера."""
+
+    __tablename__ = "cost_reservations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(20, 10), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), default=ReservationStatus.ACTIVE.value, nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )

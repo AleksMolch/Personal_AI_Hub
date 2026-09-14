@@ -74,6 +74,7 @@ export default function Home() {
             <div className="row">
               <Link href="/chat">Открыть чат</Link>
               <Link href="/providers">Настроить провайдеров</Link>
+              <Link href="/usage">Расходы</Link>
             </div>
           </>
         ) : (

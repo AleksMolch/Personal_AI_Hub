@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from personal_hub.budget import BudgetExceededError
 from personal_hub.config import get_settings
 from personal_hub.logging_setup import configure_logging, request_id_var
 from personal_hub.models import User
@@ -22,11 +23,15 @@ from sqlalchemy import func, select
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.auth import router as auth_router
+from app.api.budgets import router as budgets_router
 from app.api.conversations import router as conversations_router
 from app.api.generations import router as generations_router
 from app.api.health import router as health_router
 from app.api.models import router as models_router
+from app.api.prices import router as prices_router
 from app.api.providers import router as providers_router
+from app.api.usage import router as usage_router
+from app.billing import CurrencyConversionError
 from app.chat_worker import mark_interrupted_generations
 
 logger = logging.getLogger("api")
@@ -159,12 +164,29 @@ def create_app() -> FastAPI:
             content=_error_payload("VALIDATION_ERROR", "Некорректные данные запроса.", False),
         )
 
+    @app.exception_handler(BudgetExceededError)
+    async def _budget_error(_: Request, exc: BudgetExceededError) -> JSONResponse:
+        return JSONResponse(
+            status_code=402,
+            content=_error_payload(exc.code, str(exc), False, {"period": exc.period}),
+        )
+
+    @app.exception_handler(CurrencyConversionError)
+    async def _fx_error(_: Request, exc: CurrencyConversionError) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content=_error_payload(exc.code, str(exc), False),
+        )
+
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(providers_router)
     app.include_router(models_router)
     app.include_router(conversations_router)
     app.include_router(generations_router)
+    app.include_router(usage_router)
+    app.include_router(budgets_router)
+    app.include_router(prices_router)
 
     return app
 

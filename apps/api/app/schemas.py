@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -180,3 +181,75 @@ class MessageCreate(BaseModel):
 class MessageCreateResponse(BaseModel):
     generation_id: uuid.UUID
     message: MessageOut
+
+
+# ---- Budgets / Usage / Prices ----------------------------------------------
+# Decimal сериализуется в JSON-строку (без потери точности).
+
+
+class BudgetOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    currency: str
+    daily_limit: Decimal | None
+    monthly_limit: Decimal | None
+
+
+class BudgetUpdate(BaseModel):
+    daily_limit: Decimal | None = Field(default=None, ge=0)
+    monthly_limit: Decimal | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+
+
+class PriceCreate(BaseModel):
+    model_profile_id: uuid.UUID
+    currency: str = Field(default="USD", min_length=3, max_length=3)
+    input_per_million: Decimal = Field(ge=0)
+    output_per_million: Decimal = Field(ge=0)
+    cache_read_per_million: Decimal | None = Field(default=None, ge=0)
+    cache_write_per_million: Decimal | None = Field(default=None, ge=0)
+    source: str = Field(default="manual", max_length=16)
+    source_url: str | None = Field(default=None, max_length=512)
+
+
+class PriceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    model_profile_id: uuid.UUID
+    currency: str
+    input_per_million: Decimal
+    output_per_million: Decimal
+    cache_read_per_million: Decimal | None
+    cache_write_per_million: Decimal | None
+    source: str
+    source_url: str | None
+    effective_at: datetime
+
+
+class UsageRecordOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    units_json: dict
+    cost_amount: Decimal
+    currency: str
+    cost_state: str
+    model_profile_id: uuid.UUID | None
+    message_id: uuid.UUID | None
+    provider_request_id: str | None
+    occurred_at: datetime
+
+
+class UsageSummary(BaseModel):
+    currency: str
+    today_cost: Decimal
+    month_cost: Decimal
+    today_input_tokens: int
+    today_output_tokens: int
+    month_input_tokens: int
+    month_output_tokens: int
+    daily_limit: Decimal | None
+    monthly_limit: Decimal | None
+    daily_remaining: Decimal | None
+    monthly_remaining: Decimal | None

@@ -113,6 +113,36 @@ export function eventSourceUrl(generationId: string): string {
   return `${API_URL}/api/v1/generations/${generationId}/events?token=${encodeURIComponent(token ?? "")}`;
 }
 
+export interface UsageSummary {
+  currency: string;
+  today_cost: string;
+  month_cost: string;
+  today_input_tokens: number;
+  today_output_tokens: number;
+  month_input_tokens: number;
+  month_output_tokens: number;
+  daily_limit: string | null;
+  monthly_limit: string | null;
+  daily_remaining: string | null;
+  monthly_remaining: string | null;
+}
+
+export interface UsageRecord {
+  id: string;
+  units_json: Record<string, number>;
+  cost_amount: string;
+  currency: string;
+  cost_state: string;
+  model_profile_id: string | null;
+  occurred_at: string;
+}
+
+export interface Budget {
+  currency: string;
+  daily_limit: string | null;
+  monthly_limit: string | null;
+}
+
 export const api = {
   login: (username: string, password: string) =>
     request<TokenResponse>("/api/v1/auth/login", {
@@ -176,5 +206,17 @@ export const api = {
   cancelGeneration: (id: string) =>
     request<{ status: string }>(`/api/v1/generations/${id}/cancel`, {
       method: "POST",
+    }),
+  usageSummary: () => request<UsageSummary>("/api/v1/usage/summary"),
+  usageRecords: () => request<UsageRecord[]>("/api/v1/usage/records"),
+  getBudget: () => request<Budget>("/api/v1/budgets"),
+  updateBudget: (input: {
+    daily_limit?: string | null;
+    monthly_limit?: string | null;
+    currency?: string;
+  }) =>
+    request<Budget>("/api/v1/budgets", {
+      method: "PUT",
+      body: JSON.stringify(input),
     }),
 };

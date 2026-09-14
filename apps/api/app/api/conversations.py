@@ -27,6 +27,7 @@ from personal_hub.security.crypto import get_cipher
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.billing import check_and_reserve, estimate_units, get_latest_price
 from app.chat_worker import run_generation
 from app.deps import get_current_user
 from app.schemas import (
@@ -191,6 +192,35 @@ async def create_message(
     model_profile_id = payload.model_profile_id or conversation.model_profile_id
     model, provider = await _resolve_model(session, user, model_profile_id)
 
+    # Цена обязательна: неизвестная цена блокирует запрос (strict mode).
+    price = await get_latest_price(session, model.id)
+    if price is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Цена модели не задана. Добавьте цену в настройках.",
+        )
+
+    # История для провайдера: завершённые сообщения + новое сообщение пользователя.
+    history_result = await session.execute(
+        select(Message)
+        .where(
+            Message.conversation_id == conversation.id,
+            Message.role.in_(["user", "assistant"]),
+            Message.status == MessageStatus.COMPLETED.value,
+        )
+        .order_by(Message.created_at, Message.id)
+    )
+    chat_messages = [
+        ChatMessage(role=m.role, content=m.content) for m in history_result.scalars().all()
+    ]
+    chat_messages.append(ChatMessage(role="user", content=payload.content))
+
+    # Оценка стоимости и резервирование ДО отправки провайдеру.
+    history_text = "\n".join(
+        (conversation.system_instruction or "") + m.content for m in chat_messages
+    )
+    estimated_units = estimate_units(history_text, model.output_limit)
+
     # Сообщение пользователя.
     user_message = Message(
         conversation_id=conversation.id,
@@ -217,25 +247,18 @@ async def create_message(
         },
     )
     session.add(generation)
+    await session.flush()
+
+    # Резервирование (может поднять BudgetExceededError → 402, всё откатывается).
+    billing = await check_and_reserve(
+        session,
+        user.id,
+        price=price,
+        estimated_units=estimated_units,
+        message_id=generation.id,
+    )
     await session.commit()
     await session.refresh(generation)
-
-    # История для провайдера: все завершённые user/assistant сообщения.
-    history_result = await session.execute(
-        select(Message)
-        .where(
-            Message.conversation_id == conversation.id,
-            Message.role.in_(["user", "assistant"]),
-            Message.status == MessageStatus.COMPLETED.value,
-        )
-        .order_by(Message.created_at, Message.id)
-    )
-    chat_messages = [
-        ChatMessage(role=m.role, content=m.content) for m in history_result.scalars().all()
-    ]
-    if not chat_messages or chat_messages[-1].role != "user":
-        # На случай рассинхронизации гарантируем, что последний — user.
-        chat_messages.append(ChatMessage(role="user", content=payload.content))
 
     request = ChatRequest(
         model=model.external_model_id,
@@ -249,6 +272,10 @@ async def create_message(
             _connection_for(provider),
             get_adapter(provider.provider_type),
             request,
+            user_id=user.id,
+            provider_id=provider.id,
+            model_profile_id=model.id,
+            billing=billing,
         )
     )
 
