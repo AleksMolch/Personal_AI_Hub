@@ -77,6 +77,7 @@ export default function Home() {
               <Link href="/usage">Расходы</Link>
               <Link href="/jobs">Задачи</Link>
               <Link href="/knowledge">Базы знаний</Link>
+              <Link href="/tables">Таблицы</Link>
             </div>
           </>
         ) : (

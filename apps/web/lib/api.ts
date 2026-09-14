@@ -192,6 +192,34 @@ export interface QueryResult {
   citations: Citation[];
 }
 
+export interface Asset {
+  id: string;
+  kind: string;
+  status: string;
+  original_name: string;
+  mime_type: string;
+  size_bytes: number;
+  sha256: string;
+}
+
+export interface TableColumn {
+  name: string;
+  type: string;
+}
+
+export interface TablePreview {
+  format: string;
+  sheets: string[];
+  columns: TableColumn[];
+  sample_rows: unknown[][];
+  row_count: number;
+}
+
+export interface TableQueryResult {
+  columns: string[];
+  rows: unknown[][];
+}
+
 export const api = {
   login: (username: string, password: string) =>
     request<TokenResponse>("/api/v1/auth/login", {
@@ -296,5 +324,21 @@ export const api = {
     request<QueryResult>(`/api/v1/knowledge-bases/${kbId}/query`, {
       method: "POST",
       body: JSON.stringify({ text, top_k: topK }),
+    }),
+  assets: () => request<Asset[]>("/api/v1/assets"),
+  uploadAsset: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<Asset>("/api/v1/assets/uploads", {
+      method: "POST",
+      body: form,
+    });
+  },
+  tablePreview: (assetId: string) =>
+    request<TablePreview>(`/api/v1/assets/${assetId}/table`),
+  tableQuery: (assetId: string, sql: string) =>
+    request<TableQueryResult>(`/api/v1/assets/${assetId}/table/query`, {
+      method: "POST",
+      body: JSON.stringify({ sql }),
     }),
 };

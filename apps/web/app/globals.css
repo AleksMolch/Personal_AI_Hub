@@ -344,3 +344,26 @@ header.row {
   background: #1a1d23;
   border-radius: 6px;
 }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.85rem;
+}
+
+th,
+td {
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+}
+
+textarea {
+  background: #1a1d23;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.55rem 0.7rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.9rem;
+}

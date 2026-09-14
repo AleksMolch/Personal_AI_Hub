@@ -33,6 +33,7 @@ from app.api.knowledge import router as knowledge_router
 from app.api.models import router as models_router
 from app.api.prices import router as prices_router
 from app.api.providers import router as providers_router
+from app.api.tables import router as tables_router
 from app.api.usage import router as usage_router
 from app.billing import CurrencyConversionError
 from app.chat_worker import mark_interrupted_generations
@@ -193,6 +194,7 @@ def create_app() -> FastAPI:
     app.include_router(assets_router)
     app.include_router(jobs_router)
     app.include_router(knowledge_router)
+    app.include_router(tables_router)
 
     return app
 

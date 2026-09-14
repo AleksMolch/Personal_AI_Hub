@@ -354,3 +354,35 @@ class Citation(BaseModel):
 class QueryResult(BaseModel):
     sufficient: bool
     citations: list[Citation]
+
+
+# ---- Tables -----------------------------------------------------------------
+
+
+class TableColumn(BaseModel):
+    name: str
+    type: str
+
+
+class TablePreview(BaseModel):
+    format: str
+    sheets: list[str] = []
+    columns: list[TableColumn] = []
+    sample_rows: list = []
+    row_count: int = 0
+
+
+class TableQueryRequest(BaseModel):
+    sql: str = Field(min_length=1, max_length=10_000)
+    sheet: str | None = None
+
+
+class TableQueryResult(BaseModel):
+    columns: list[str]
+    rows: list
+
+
+class TableExportRequest(BaseModel):
+    sql: str = Field(min_length=1, max_length=10_000)
+    sheet: str | None = None
+    format: str = Field(default="csv", pattern="^(csv|xlsx)$")
