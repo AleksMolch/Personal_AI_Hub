@@ -22,11 +22,13 @@ from personal_hub.security.auth import hash_password
 from sqlalchemy import func, select
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.api.assets import router as assets_router
 from app.api.auth import router as auth_router
 from app.api.budgets import router as budgets_router
 from app.api.conversations import router as conversations_router
 from app.api.generations import router as generations_router
 from app.api.health import router as health_router
+from app.api.jobs import router as jobs_router
 from app.api.models import router as models_router
 from app.api.prices import router as prices_router
 from app.api.providers import router as providers_router
@@ -187,6 +189,8 @@ def create_app() -> FastAPI:
     app.include_router(usage_router)
     app.include_router(budgets_router)
     app.include_router(prices_router)
+    app.include_router(assets_router)
+    app.include_router(jobs_router)
 
     return app
 

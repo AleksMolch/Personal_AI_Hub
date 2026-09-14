@@ -1,4 +1,4 @@
-# Test profile: запускает интеграционные тесты против изолированного Postgres.
+# Test profile: интеграционные тесты против изолированного Postgres и Valkey.
 # Использование: docker compose -f compose.yaml -f infra/compose/test.yaml run --rm test
 
 services:
@@ -8,16 +8,21 @@ services:
       - .:/work
     working_dir: /work
     environment:
-      PYTHONPATH: /work/packages/core:/work/apps/api:/work/apps/worker
+      PYTHONPATH: /work/packages/core:/work/apps/api:/work/apps
       DATABASE_URL: postgresql+asyncpg://app:testpass@test-postgres:5432/app_test
+      VALKEY_URL: redis://valkey:6379/0
       APP_MASTER_KEY: test_master_key_32_bytes_minimum
       APP_ENV: test
+      BLOB_STORE_DRIVER: local
+      BLOB_LOCAL_ROOT: /tmp/pah-test-assets
     command:
       - sh
       - -c
       - "pip install -q -r apps/api/requirements-dev.txt && cd apps/api && alembic upgrade head && cd /work && pytest tests/integration -q"
     depends_on:
       test-postgres:
+        condition: service_healthy
+      valkey:
         condition: service_healthy
 
   test-postgres:

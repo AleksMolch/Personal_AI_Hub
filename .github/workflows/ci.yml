@@ -40,7 +40,7 @@ jobs:
       - run: pip install -r apps/api/requirements-dev.txt
       - run: mypy apps/api packages/core apps/worker
         env:
-          PYTHONPATH: "packages/core:apps/api:apps/worker"
+          PYTHONPATH: "packages/core:apps/api:apps"
 
   backend-unit:
     runs-on: ubuntu-latest
@@ -52,7 +52,7 @@ jobs:
       - run: pip install -r apps/api/requirements-dev.txt
       - run: pytest tests/unit -q
         env:
-          PYTHONPATH: "packages/core:apps/api:apps/worker"
+          PYTHONPATH: "packages/core:apps/api:apps"
           APP_MASTER_KEY: ci_test_secret_key
 
   frontend:

@@ -253,3 +253,41 @@ class UsageSummary(BaseModel):
     monthly_limit: Decimal | None
     daily_remaining: Decimal | None
     monthly_remaining: Decimal | None
+
+
+# ---- Assets / Jobs ----------------------------------------------------------
+
+
+class AssetOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    kind: str
+    status: str
+    original_name: str
+    mime_type: str
+    size_bytes: int
+    sha256: str
+    metadata_json: dict
+    created_at: datetime
+
+
+class JobOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    type: str
+    status: str
+    progress: int
+    input_json: dict
+    output_json: dict
+    error_code: str | None
+    error_detail_safe: str | None
+    attempts: int
+    submitted_at: datetime | None
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+class DeleteAssetResponse(BaseModel):
+    job_id: uuid.UUID

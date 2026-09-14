@@ -55,7 +55,18 @@
 - [ ] Reconciliation в отдельную фоновую задачу (сейчас лениво при резервировании)
 - [ ] Импорт цен из API провайдера (сейчас manual)
 
-### 5. Jobs и Assets — ⬜
+### 5. Jobs и Assets — ✅
+- [x] BlobStore: протокол + LocalBlobStore (put/open/delete, sha256, лимит размера)
+- [x] Asset модель + загрузка/скачивание/удаление (download через авторизованный API)
+- [x] Job state machine (централизованная валидация переходов)
+- [x] Celery-задача run_job + heartbeat + идемпотентный повторный запуск
+- [x] Reconciliation «мёртвых» задач (worker lost → retryable/failed)
+- [x] API: /assets (upload/list/get/content/delete→job), /jobs (list/get/retry/cancel)
+- [x] Удаление ассета через document_delete job (безопасно, идемпотентно)
+- [x] UI: страница задач (статус, повтор, отмена)
+- [ ] Периодический beat для reconciliation (сейчас лениво при чтении)
+- [ ] Реальное наполнение document_ingest (срез 6)
+
 ### 6. Документы и RAG — ⬜
 ### 7. Таблицы и OCR — ⬜
 ### 8. Release candidate — ⬜
@@ -76,3 +87,5 @@
   генерации помечаются interrupted.
 - Цены вводятся вручную (импорт из API провайдера — позже). Все стоимости считаются
   в базовой валюте бюджета с сохранением provenance (price_snapshot_id, fx_rate_id).
+- Reconciliation задач — ленивая (при чтении), не периодическая (beat добавим позже).
+- Отмена задачи работает для queued; cooperative cancel для running — в срезе 6.

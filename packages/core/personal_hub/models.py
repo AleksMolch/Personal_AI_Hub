@@ -12,7 +12,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -45,6 +45,14 @@ class ReservationStatus(StrEnum):
     ACTIVE = "active"
     SETTLED = "settled"
     CANCELLED = "cancelled"
+
+
+class AssetStatus(StrEnum):
+    """Статус файла-ассета."""
+
+    PENDING = "pending"
+    READY = "ready"
+    FAILED = "failed"
 
 
 class User(Base, TimestampMixin):
@@ -297,3 +305,72 @@ class CostReservation(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
+
+
+class Asset(Base, TimestampMixin):
+    """Файл или результат, хранящийся в BlobStore.
+
+    URL не хранится как вечный источник истины; скачивание идёт через
+    авторизованный API (BlobStore), а не по прямой ссылке.
+    """
+
+    __tablename__ = "assets"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(32), default="document", nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), default=AssetStatus.READY.value, nullable=False
+    )
+    blob_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    original_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    metadata_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+
+
+class Job(Base, TimestampMixin):
+    """Фоновая задача с state machine, heartbeat и попытками.
+
+    Любая долгая операция оформляется как Job. Этап 1: импорт/OCR/индексация;
+    Этап 2: видео. Типы видео зарезервированы в JobType.
+    """
+
+    __tablename__ = "jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    type: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False)
+    progress: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    provider_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("provider_credentials.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    model_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("model_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    external_job_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    input_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    output_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Безопасное для показа описание ошибки (без секретов).
+    error_detail_safe: Mapped[str | None] = mapped_column(Text, nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

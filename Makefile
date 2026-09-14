@@ -44,7 +44,7 @@ lint: ## Ruff + ESLint + Prettier
 
 typecheck: ## mypy + tsc
 	@docker run --rm -v "$$PWD":/work -w /work \
-		-e PYTHONPATH=/work/packages/core:/work/apps/api:/work/apps/worker \
+		-e PYTHONPATH=/work/packages/core:/work/apps/api:/work/apps \
 		python:3.12-slim sh -c "pip install -q -r apps/api/requirements-dev.txt && mypy apps/api packages/core apps/worker"
 	@cd apps/web && npx tsc --noEmit
 
@@ -52,7 +52,7 @@ typecheck: ## mypy + tsc
 
 test-unit: ## Быстрые тесты без инфраструктуры
 	@docker run --rm -v "$$PWD":/work -w /work \
-		-e PYTHONPATH=/work/packages/core:/work/apps/api:/work/apps/worker \
+		-e PYTHONPATH=/work/packages/core:/work/apps/api:/work/apps \
 		-e APP_MASTER_KEY=test_secret_key_32_bytes_minimum \
 		python:3.12-slim sh -c "pip install -q -r apps/api/requirements-dev.txt && pytest tests/unit -q"
 

@@ -16,7 +16,7 @@ app = Celery(
     "personal_hub",
     broker=settings.valkey_url,
     backend=settings.valkey_url,
-    include=["worker.tasks"],
+    include=["worker.tasks.system", "worker.tasks.jobs"],
 )
 
 app.conf.update(

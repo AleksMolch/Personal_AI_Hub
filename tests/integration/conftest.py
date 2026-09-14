@@ -34,7 +34,8 @@ async def clean_db() -> None:
             text(
                 "TRUNCATE users, provider_credentials, model_profiles, "
                 "conversations, messages, price_snapshots, fx_rates, budgets, "
-                "usage_records, cost_reservations RESTART IDENTITY CASCADE"
+                "usage_records, cost_reservations, assets, jobs "
+                "RESTART IDENTITY CASCADE"
             )
         )
     yield

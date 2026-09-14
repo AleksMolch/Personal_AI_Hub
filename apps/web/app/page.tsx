@@ -75,6 +75,7 @@ export default function Home() {
               <Link href="/chat">Открыть чат</Link>
               <Link href="/providers">Настроить провайдеров</Link>
               <Link href="/usage">Расходы</Link>
+              <Link href="/jobs">Задачи</Link>
             </div>
           </>
         ) : (

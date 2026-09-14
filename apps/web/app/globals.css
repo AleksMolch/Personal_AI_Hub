@@ -296,3 +296,30 @@ header.row {
   justify-content: space-between;
   align-items: center;
 }
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  background: var(--border);
+  color: var(--muted);
+}
+
+.badge.completed {
+  color: #2ecc71;
+}
+
+.badge.failed,
+.badge.cancelled {
+  color: #e74c3c;
+}
+
+.badge.running,
+.badge.queued {
+  color: var(--accent);
+}
+
+.badge.retryable {
+  color: #f1c40f;
+}

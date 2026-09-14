@@ -143,6 +143,19 @@ export interface Budget {
   monthly_limit: string | null;
 }
 
+export interface Job {
+  id: string;
+  type: string;
+  status: string;
+  progress: number;
+  error_code: string | null;
+  error_detail_safe: string | null;
+  attempts: number;
+  submitted_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
 export const api = {
   login: (username: string, password: string) =>
     request<TokenResponse>("/api/v1/auth/login", {
@@ -219,4 +232,9 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(input),
     }),
+  jobs: () => request<Job[]>("/api/v1/jobs"),
+  retryJob: (id: string) =>
+    request<Job>(`/api/v1/jobs/${id}/retry`, { method: "POST" }),
+  cancelJob: (id: string) =>
+    request<Job>(`/api/v1/jobs/${id}/cancel`, { method: "POST" }),
 };
