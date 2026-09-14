@@ -27,6 +27,8 @@ node_modules/
 out/
 *.tsbuildinfo
 next-env.d.ts
+playwright-report/
+test-results/
 
 # Docker / data volumes
 data/

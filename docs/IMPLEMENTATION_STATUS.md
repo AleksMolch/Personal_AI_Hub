@@ -98,8 +98,8 @@
 - [x] Нагрузочный smoke (30 параллельных version + 10 ready — все 200)
 - [x] Миграции идемпотентны (alembic upgrade head, 0001→0006)
 - [x] Celery beat — периодическая reconciliation (резервирования + задачи)
+- [x] E2E Playwright (smoke: вход + навигация по разделам)
 - [ ] Windows clean install (не проверялся на этой машине)
-- [ ] E2E Playwright (контракт описан, тесты не написаны)
 - [ ] Live provider certification (RUN_LIVE_TESTS=1, отдельный бюджет)
 
 ## Определение готовности Этапа 1

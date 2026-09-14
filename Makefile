@@ -60,8 +60,8 @@ test-integration: ## Интеграционные тесты (изолирова
 	@docker compose build api
 	@docker compose -f compose.yaml -f infra/compose/test.yaml run --rm test
 
-test-e2e: ## E2E Playwright
-	@cd apps/web && pnpm exec playwright test
+test-e2e: ## E2E Playwright (требует запущенный стек и admin/supersecret123)
+	@cd apps/web && npx playwright test
 
 test: ## Все бесплатные тесты
 	$(MAKE) test-unit
