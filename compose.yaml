@@ -104,6 +104,24 @@ services:
       qdrant:
         condition: service_healthy
 
+  beat:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    command: ["celery", "-A", "worker.celery_app:app", "beat", "--loglevel=${LOG_LEVEL:-INFO}"]
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_MASTER_KEY: ${APP_MASTER_KEY:?APP_MASTER_KEY обязателен}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://app:${POSTGRES_PASSWORD}@postgres:5432/app}
+      VALKEY_URL: ${VALKEY_URL:-redis://valkey:6379/0}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      valkey:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
   web:
     build:
       context: .

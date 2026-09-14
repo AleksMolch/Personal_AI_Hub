@@ -17,6 +17,10 @@ def _embedding_handler(method, path, body):
     return 200, json.dumps({"data": embeddings}), {}
 
 
+def _chat_handler(method, path, body):
+    return 200, '{"choices":[{"message":{"content":"Ответ на основе фрагментов [1]"}}]}', {}
+
+
 async def _bootstrap(client: AsyncClient) -> dict:
     resp = await client.post(
         "/api/v1/auth/bootstrap", json={"username": "admin", "password": "supersecret"}
@@ -105,3 +109,34 @@ async def test_query_empty_kb_insufficient(client: AsyncClient, mock_provider) -
     result = query.json()
     assert result["sufficient"] is False
     assert result["citations"] == []
+
+
+async def test_query_synthesizes_answer(client: AsyncClient, mock_provider) -> None:
+    headers = await _bootstrap(client)
+    model_id = await _model_id(client, headers, mock_provider)
+    mock_provider.spec["POST /embeddings"] = _embedding_handler
+    mock_provider.spec["POST /chat/completions"] = _chat_handler
+
+    kb = await client.post(
+        "/api/v1/knowledge-bases",
+        json={"name": "Docs", "embedding_model_profile_id": model_id},
+        headers=headers,
+    )
+    kb_id = kb.json()["id"]
+
+    resp = await client.post(
+        f"/api/v1/knowledge-bases/{kb_id}/documents",
+        headers=headers,
+        files={"file": ("notes.txt", "Persia was a great empire".encode(), "text/plain")},
+    )
+    await execute_job(uuid.UUID(resp.json()["job_id"]))
+
+    query = await client.post(
+        f"/api/v1/knowledge-bases/{kb_id}/query",
+        json={"text": "Persia", "chat_model_profile_id": model_id},
+        headers=headers,
+    )
+    result = query.json()
+    assert result["sufficient"] is True
+    assert result["answer"] == "Ответ на основе фрагментов [1]"
+    assert len(result["citations"]) >= 1

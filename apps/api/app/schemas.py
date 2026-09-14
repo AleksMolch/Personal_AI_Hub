@@ -340,6 +340,7 @@ class DocumentCreateResponse(BaseModel):
 class QueryRequest(BaseModel):
     text: str = Field(min_length=1, max_length=10_000)
     top_k: int = Field(default=5, ge=1, le=20)
+    chat_model_profile_id: uuid.UUID | None = None
 
 
 class Citation(BaseModel):
@@ -353,6 +354,7 @@ class Citation(BaseModel):
 
 class QueryResult(BaseModel):
     sufficient: bool
+    answer: str | None = None
     citations: list[Citation]
 
 

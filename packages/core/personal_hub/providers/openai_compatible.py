@@ -169,3 +169,33 @@ class OpenAICompatibleAdapter:
         data = resp.json().get("data", [])
         vectors = [item["embedding"] for item in data]
         return EmbeddingResult(vectors=vectors, model=model)
+
+    async def chat_complete(
+        self, connection: ProviderConnection, request: ChatRequest
+    ) -> str:
+        """Непотоковый чат (для RAG-синтеза): возвращает текст ответа."""
+        url = f"{connection.base_url.rstrip('/')}/chat/completions"
+        messages: list[dict] = [{"role": m.role, "content": m.content} for m in request.messages]
+        if request.system:
+            messages.insert(0, {"role": "system", "content": request.system})
+        payload: dict = {"model": request.model, "messages": messages, "stream": False}
+        if request.temperature is not None:
+            payload["temperature"] = request.temperature
+        if request.max_tokens is not None:
+            payload["max_tokens"] = request.max_tokens
+
+        try:
+            async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_SECONDS) as client:
+                resp = await client.post(
+                    url, json=payload, headers=self._headers(connection)
+                )
+        except httpx.TimeoutException as exc:
+            raise ProviderError("PROVIDER_TIMEOUT", "Таймаут провайдера", True) from exc
+        except httpx.RequestError as exc:
+            raise ProviderError("PROVIDER_UNREACHABLE", "Провайдер недоступен") from exc
+
+        if resp.status_code != 200:
+            raise normalize_http_status(resp.status_code)
+
+        choices = resp.json().get("choices") or [{}]
+        return (choices[0].get("message") or {}).get("content") or ""

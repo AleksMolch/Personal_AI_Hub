@@ -11,6 +11,14 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# OCR-зависимости: tesseract (eng+rus) и poppler (для рендера PDF-страниц).
+# Ставим до pip-слоя, чтобы кэшировать отдельно.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tesseract-ocr \
+    tesseract-ocr-rus \
+    poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
 # Зависимости устанавливаются отдельным слоем для кэширования.
 COPY apps/api/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt

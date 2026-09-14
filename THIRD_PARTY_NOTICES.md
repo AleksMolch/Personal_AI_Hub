@@ -33,6 +33,8 @@
 | qdrant-client | 1.19.0 | Apache-2.0 |
 | duckdb | 1.5.5 | MIT |
 | openpyxl | 3.1.5 | MIT |
+| pytesseract | 0.3.13 | Apache-2.0 |
+| pdf2image | 1.17.0 | MIT |
 
 Dev-инструменты: pytest (MIT), pytest-asyncio (Apache-2.0), ruff (MIT),
 mypy (MIT).
@@ -58,6 +60,9 @@ mypy (MIT).
 | qdrant/qdrant | v1.15.4 | Apache-2.0 |
 | python | 3.12-slim | PSF License |
 | node | 22-alpine | MIT |
+
+Системные пакеты OCR (в backend-образе): tesseract-ocr (Apache-2.0),
+poppler-utils (GPL-2.0+).
 
 ## Инструменты CI
 

@@ -21,7 +21,7 @@ from personal_hub.models import (
     ProviderCredential,
     User,
 )
-from personal_hub.providers.base import ProviderConnection
+from personal_hub.providers.base import ChatMessage, ChatRequest, ProviderConnection
 from personal_hub.providers.registry import get_adapter
 from personal_hub.security.crypto import get_cipher
 from personal_hub.vectorstore import get_vector_store
@@ -282,7 +282,56 @@ async def query_knowledge_base(
             )
         )
 
-    return QueryResult(sufficient=bool(citations), citations=citations)
+    answer: str | None = None
+    if citations and payload.chat_model_profile_id is not None:
+        answer = await _synthesize(
+            session, user, payload.chat_model_profile_id, payload.text, citations
+        )
+
+    return QueryResult(sufficient=bool(citations), answer=answer, citations=citations)
+
+
+async def _synthesize(
+    session: AsyncSession,
+    user: User,
+    chat_model_profile_id: uuid.UUID,
+    question: str,
+    citations: list[Citation],
+) -> str:
+    """Синтезирует ответ по найденным фрагментам с цитатами."""
+    chat_model = await session.get(ModelProfile, chat_model_profile_id)
+    if chat_model is None:
+        return ""
+    provider = await session.get(ProviderCredential, chat_model.provider_id)
+    if provider is None or provider.user_id != user.id:
+        return ""
+
+    connection = ProviderConnection(
+        provider_type=provider.provider_type,
+        base_url=provider.base_url,
+        api_key=get_cipher().decrypt(provider.encrypted_secret),
+    )
+
+    context_parts = []
+    for i, c in enumerate(citations, start=1):
+        src = c.document_title + (f", стр. {c.page}" if c.page else "")
+        context_parts.append(f"[{i}] ({src}): {c.text}")
+    context = "\n\n".join(context_parts)
+
+    system = (
+        "Отвечай на вопрос строго по приведённым фрагментам. Ссылайся на источники "
+        "в квадратных скобках, например [1]. Если в фрагментах нет ответа, ответь: "
+        "«В документах недостаточно оснований для ответа». Не выдумывай."
+    )
+    user_msg = f"Вопрос: {question}\n\nФрагменты:\n{context}"
+
+    request = ChatRequest(
+        model=chat_model.external_model_id,
+        messages=[ChatMessage(role="user", content=user_msg)],
+        system=system,
+    )
+    adapter = get_adapter(provider.provider_type)
+    return await adapter.chat_complete(connection, request)
 
 
 async def _chunk_text(session: AsyncSession, vector_id: str) -> str:

@@ -189,6 +189,7 @@ export interface Citation {
 
 export interface QueryResult {
   sufficient: boolean;
+  answer: string | null;
   citations: Citation[];
 }
 
@@ -329,10 +330,19 @@ export const api = {
       { method: "POST", body: form },
     );
   },
-  queryKnowledgeBase: (kbId: string, text: string, topK = 5) =>
+  queryKnowledgeBase: (
+    kbId: string,
+    text: string,
+    topK = 5,
+    chatModelProfileId?: string,
+  ) =>
     request<QueryResult>(`/api/v1/knowledge-bases/${kbId}/query`, {
       method: "POST",
-      body: JSON.stringify({ text, top_k: topK }),
+      body: JSON.stringify({
+        text,
+        top_k: topK,
+        chat_model_profile_id: chatModelProfileId ?? null,
+      }),
     }),
   assets: () => request<Asset[]>("/api/v1/assets"),
   uploadAsset: (file: File) => {

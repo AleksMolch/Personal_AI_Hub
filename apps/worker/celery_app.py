@@ -16,7 +16,12 @@ app = Celery(
     "personal_hub",
     broker=settings.valkey_url,
     backend=settings.valkey_url,
-    include=["worker.tasks.system", "worker.tasks.jobs", "worker.tasks.ingest"],
+    include=[
+        "worker.tasks.system",
+        "worker.tasks.jobs",
+        "worker.tasks.ingest",
+        "worker.tasks.maintenance",
+    ],
 )
 
 app.conf.update(
@@ -29,4 +34,10 @@ app.conf.update(
     task_acks_late=True,
     worker_prefetch_multiplier=1,
     broker_connection_retry_on_startup=True,
+    beat_schedule={
+        "reconcile-every-minute": {
+            "task": "worker.reconcile",
+            "schedule": 60.0,
+        },
+    },
 )

@@ -361,6 +361,20 @@ header.row {
   border-radius: 6px;
 }
 
+.answer {
+  border-left: 3px solid #2ecc71;
+  padding: 0.6rem 0.9rem;
+  margin-top: 0.75rem;
+  background: #16324f;
+  border-radius: 6px;
+}
+
+.answer p {
+  margin: 0;
+  color: var(--fg);
+  white-space: pre-wrap;
+}
+
 table {
   border-collapse: collapse;
   width: 100%;

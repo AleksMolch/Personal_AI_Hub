@@ -84,3 +84,14 @@ async def test_stream_chat_malformed_event_skipped(mock_provider) -> None:
     async for chunk in adapter.stream_chat(_connection(mock_provider), _request()):
         result.append(chunk.content_delta)
     assert "".join(result) == "ok"
+
+
+@pytest.mark.asyncio
+async def test_chat_complete(mock_provider) -> None:
+    mock_provider.spec["POST /chat/completions"] = (
+        200,
+        '{"choices":[{"message":{"content":"Синтезированный ответ"}}]}',
+    )
+    adapter = OpenAICompatibleAdapter()
+    text = await adapter.chat_complete(_connection(mock_provider), _request())
+    assert text == "Синтезированный ответ"

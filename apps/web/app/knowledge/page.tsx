@@ -30,6 +30,8 @@ export default function KnowledgePage() {
   const [name, setName] = useState("");
   const [modelId, setModelId] = useState("");
   const [query, setQuery] = useState("");
+  const [chatModel, setChatModel] = useState("");
+  const [answer, setAnswer] = useState<string | null>(null);
   const [citations, setCitations] = useState<Citation[]>([]);
   const [sufficient, setSufficient] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +41,10 @@ export default function KnowledgePage() {
       const [k, m] = await Promise.all([api.knowledgeBases(), api.models()]);
       setKbs(k);
       setModels(m);
-      if (m.length > 0) setModelId(m[0].id);
+      if (m.length > 0) {
+        setModelId(m[0].id);
+        setChatModel(m[0].id);
+      }
     } catch (err) {
       if (
         err instanceof Error &&
@@ -77,6 +82,7 @@ export default function KnowledgePage() {
 
   async function onOpen(id: string) {
     setCitations([]);
+    setAnswer(null);
     setCurrent(await api.getKnowledgeBase(id));
   }
 
@@ -98,9 +104,15 @@ export default function KnowledgePage() {
     if (!current || !query.trim()) return;
     setError(null);
     try {
-      const result = await api.queryKnowledgeBase(current.id, query.trim());
+      const result = await api.queryKnowledgeBase(
+        current.id,
+        query.trim(),
+        5,
+        chatModel || undefined,
+      );
       setCitations(result.citations);
       setSufficient(result.sufficient);
+      setAnswer(result.answer);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка запроса.");
     }
@@ -175,8 +187,24 @@ export default function KnowledgePage() {
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Задайте вопрос по документам…"
               />
+              <select
+                value={chatModel}
+                onChange={(e) => setChatModel(e.target.value)}
+                aria-label="Модель ответа"
+              >
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.display_name}
+                  </option>
+                ))}
+              </select>
               <button type="submit">Спросить</button>
             </form>
+            {answer && (
+              <div className="answer">
+                <p>{answer}</p>
+              </div>
+            )}
             {!sufficient && (
               <p className="hint">Недостаточно оснований в документах.</p>
             )}

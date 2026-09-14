@@ -69,24 +69,24 @@
 
 ### 6. Документы и RAG — ✅
 - [x] Парсеры TXT/MD/PDF (pypdf)/DOCX (python-docx)
+- [x] OCR-профиль для сканов PDF (tesseract + poppler, ошибки не портят asset)
 - [x] Чанкинг с overlap и локацией (страница/позиция) + checksum
 - [x] Embedding-адаптер (OpenAI-compatible POST /embeddings)
 - [x] VectorStore: Qdrant + InMemory; коллекция на версию эмбеддинг-модели
 - [x] Модели KnowledgeBase/Document/Chunk + миграция 0006
 - [x] Worker document_ingest (parse→chunk→embed→Qdrant+DB), delete с очисткой векторов
 - [x] API: /knowledge-bases (CRUD, upload document, query с цитатами)
+- [x] LLM-синтез ответа с цитатами (chat_model_profile_id)
 - [x] Порог релевантности → sufficient=false (не выдумывает источник)
-- [x] UI: страница баз знаний (создание, загрузка, RAG-запрос)
-- [ ] LLM-синтез ответа с цитатами (пока retrieval-only)
-- [ ] OCR-профиль для сканов (срез 7)
+- [x] UI: страница баз знаний (создание, загрузка, RAG-запрос с ответом)
 
-### 7. Таблицы и OCR — ✅ (таблицы; OCR отложен)
+### 7. Таблицы и OCR — ✅
 - [x] CSV/XLSX schema preview (колонки, типы, первые строки, число строк)
 - [x] DuckDB read-only sandbox: SELECT-only, enable_external_access=false, лимиты строк/ячеек
 - [x] Модель получает schema/агрегаты, а не всю таблицу; запрещённый SQL отклоняется
 - [x] Экспорт результата CSV/XLSX
 - [x] API: /assets/{id}/table (preview/query/export), UI страница «Таблицы»
-- [ ] OCR-профиль для сканов (отложен: требует OCR-движок, отдельное решение)
+- [x] OCR-профиль для сканов PDF (tesseract+poppler в образе)
 
 ### 8. Release candidate — ✅ (частично)
 - [x] Backup/restore drill (backup.sh + restore-verify прошли)
@@ -97,8 +97,9 @@
 - [x] Secret scan (gitleaks в CI) и ручная проверка: ключи не в Git
 - [x] Нагрузочный smoke (30 параллельных version + 10 ready — все 200)
 - [x] Миграции идемпотентны (alembic upgrade head, 0001→0006)
+- [x] Celery beat — периодическая reconciliation (резервирования + задачи)
 - [ ] Windows clean install (не проверялся на этой машине)
-- [ ] E2E Playwright (настроен контракт, тесты — следующий этап)
+- [ ] E2E Playwright (контракт описан, тесты не написаны)
 - [ ] Live provider certification (RUN_LIVE_TESTS=1, отдельный бюджет)
 
 ## Определение готовности Этапа 1
@@ -116,14 +117,12 @@
 
 ## Известные ограничения
 - Celery-логи пока в дефолтном формате (JSON включу вместе с реальными задачами).
-- OCR-профиль и таблицы (DuckDB) реализуются на срезах 6–7.
 - SSE-аутентификация через query-параметр token (EventSource не умеет заголовки);
   для localhost приемлемо, для LAN нужно перейти на cookie или short-lived token.
 - Event-буфер генераций — in-memory (однопроцессный MVP); при рестарте незавершённые
   генерации помечаются interrupted.
 - Цены вводятся вручную (импорт из API провайдера — позже). Все стоимости считаются
   в базовой валюте бюджета с сохранением provenance (price_snapshot_id, fx_rate_id).
-- Reconciliation задач — ленивая (при чтении), не периодическая (beat добавим позже).
-- Отмена задачи работает для queued; cooperative cancel для running — в срезе 6.
-- RAG возвращает цитаты (retrieval); LLM-синтез ответа — следующий срез.
-- OCR-профиль для сканов PDF отложен (нужен OCR-движок — отдельное продуктовое решение).
+- Reconciliation задач — через Celery beat (каждую минуту) + лениво при чтении.
+- Отмена задачи работает для queued; cooperative cancel для running — не реализован.
+- OCR запускается только для страниц PDF без текстового слоя; ошибки OCR игнорируются.
