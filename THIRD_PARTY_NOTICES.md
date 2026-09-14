@@ -26,6 +26,13 @@
 | redis | 8.1.0 | MIT |
 | cryptography | 50.0.1 | Apache-2.0 / BSD-3-Clause |
 | python-multipart | 0.0.32 | Apache-2.0 |
+| argon2-cffi | 25.1.0 | MIT |
+| PyJWT | 2.14.0 | MIT |
+| pypdf | 6.18.1 | BSD-3-Clause |
+| python-docx | 1.2.0 | MIT |
+| qdrant-client | 1.19.0 | Apache-2.0 |
+| duckdb | 1.5.5 | MIT |
+| openpyxl | 3.1.5 | MIT |
 
 Dev-инструменты: pytest (MIT), pytest-asyncio (Apache-2.0), ruff (MIT),
 mypy (MIT).

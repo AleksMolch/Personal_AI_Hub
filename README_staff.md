@@ -6,15 +6,19 @@
 Документ объясняет внутреннюю архитектуру, эксплуатацию, диагностику, миграции, backup/restore, инциденты, тесты и добавление провайдеров. Он не заменяет пользовательский README.
 
 ## Карта сервисов
-- `web`: UI, не владеет API-ключами.
-- `api`: auth, settings, conversations, budgets, jobs, OpenAPI.
-- `worker`: document/OCR/embedding jobs; на Этапе 2 media jobs.
-- `postgres`: источник истины.
-- `valkey`: broker, cache, locks/reservations с TTL.
-- `qdrant`: embeddings.
-- `blob`: local/S3-compatible assets.
+| Сервис | Назначение | Порт (хост) | Health | Образ/версия |
+| --- | --- | --- | --- | --- |
+| `web` | Next.js UI, не владеет ключами | 3000 | `/api/health` | node:22-alpine, Next 16 |
+| `api` | FastAPI: auth, providers, conversations, budgets, jobs, RAG | 8000 | `/api/v1/health/ready` | python:3.12-slim |
+| `worker` | Celery: document ingest/embedding; Этап 2 — media | — | `celery inspect ping` | тот же backend-образ |
+| `postgres` | источник истины | 5432 (внутр.) | `pg_isready` | postgres:16-alpine |
+| `valkey` | broker, cache, locks с TTL | 6379 (внутр.) | `valkey-cli ping` | valkey/valkey:8-alpine |
+| `qdrant` | embeddings | 6333 (внутр.) | `/readyz` | qdrant/qdrant:v1.15.4 |
 
-Агент должен дополнить ports, health endpoints, volumes, image versions и dependency graph из реального Compose.
+Тома: `pgdata`, `valkeydata`, `qdrantdata`, `assets` (BlobStore, `/data/assets`).
+
+Зависимости: `api` зависит от postgres/valkey/qdrant (healthy); `web` — от `api`;
+`worker` — от postgres/valkey/qdrant. Миграции применяет только `api` (entrypoint).
 
 ## Потоки данных
 ### Chat

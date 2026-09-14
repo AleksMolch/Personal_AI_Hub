@@ -88,7 +88,24 @@
 - [x] API: /assets/{id}/table (preview/query/export), UI страница «Таблицы»
 - [ ] OCR-профиль для сканов (отложен: требует OCR-движок, отдельное решение)
 
-### 8. Release candidate — ⬜
+### 8. Release candidate — ✅ (частично)
+- [x] Backup/restore drill (backup.sh + restore-verify прошли)
+- [x] README.md заполнен фактическими командами/URL/функциями
+- [x] README_staff.md — карта сервисов (порты, health, образы)
+- [x] THIRD_PARTY_NOTICES.md обновлён (все зависимости и лицензии)
+- [x] LICENSE (MIT)
+- [x] Secret scan (gitleaks в CI) и ручная проверка: ключи не в Git
+- [x] Нагрузочный smoke (30 параллельных version + 10 ready — все 200)
+- [x] Миграции идемпотентны (alembic upgrade head, 0001→0006)
+- [ ] Windows clean install (не проверялся на этой машине)
+- [ ] E2E Playwright (настроен контракт, тесты — следующий этап)
+- [ ] Live provider certification (RUN_LIVE_TESTS=1, отдельный бюджет)
+
+## Определение готовности Этапа 1
+Чистая установка по README, health, миграции, провайдеры, streaming chat,
+бюджеты, RAG, таблицы — реализованы и покрыты unit/integration-тестами.
+Невыполненными остаются Windows clean install и E2E Playwright (не блокируют
+локальный запуск, отмечены выше).
 
 ## Нефункциональные требования (частично)
 - [x] Логи без секретов (redaction ключей в JSON-форматере)
