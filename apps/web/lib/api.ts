@@ -220,6 +220,15 @@ export interface TableQueryResult {
   rows: unknown[][];
 }
 
+export interface Price {
+  id: string;
+  model_profile_id: string;
+  currency: string;
+  input_per_million: string;
+  output_per_million: string;
+  effective_at: string;
+}
+
 export const api = {
   login: (username: string, password: string) =>
     request<TokenResponse>("/api/v1/auth/login", {
@@ -340,5 +349,19 @@ export const api = {
     request<TableQueryResult>(`/api/v1/assets/${assetId}/table/query`, {
       method: "POST",
       body: JSON.stringify({ sql }),
+    }),
+  prices: (modelProfileId: string) =>
+    request<Price[]>(
+      `/api/v1/prices?model_profile_id=${encodeURIComponent(modelProfileId)}`,
+    ),
+  createPrice: (input: {
+    model_profile_id: string;
+    input_per_million: string;
+    output_per_million: string;
+    currency: string;
+  }) =>
+    request<Price>("/api/v1/prices", {
+      method: "POST",
+      body: JSON.stringify(input),
     }),
 };

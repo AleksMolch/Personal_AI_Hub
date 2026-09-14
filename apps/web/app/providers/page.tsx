@@ -122,6 +122,7 @@ export default function ProvidersPage() {
       <header className="row">
         <h1>Провайдеры</h1>
         <div className="row">
+          <Link href="/models">Модели и цены</Link>
           <Link href="/">Главная</Link>
           <button onClick={logout} className="link">
             Выйти

@@ -36,6 +36,16 @@ export default function ChatPage() {
       setConversations(c);
       setModels(m);
       if (m.length > 0) setSelectedModel(m[0].id);
+      if (c.length > 0) {
+        setCurrentId(c[0].id);
+        const detail = await api.getConversation(c[0].id);
+        setMessages(detail.messages);
+      } else {
+        const conv = await api.createConversation({ title: "Новый диалог" });
+        setConversations([conv]);
+        setCurrentId(conv.id);
+        setMessages([]);
+      }
     } catch {
       setError("Не удалось загрузить данные.");
     }
@@ -176,6 +186,7 @@ export default function ChatPage() {
           ))}
         </div>
         <div className="row sidebar-footer">
+          <Link href="/models">Модели</Link>
           <Link href="/providers">Провайдеры</Link>
           <button className="link" onClick={logout}>
             Выйти
@@ -234,7 +245,10 @@ export default function ChatPage() {
             </form>
             {error && (
               <p className="error" role="alert">
-                {error}
+                {error}{" "}
+                {error.toLowerCase().includes("цена") && (
+                  <Link href="/models">Задать цену модели →</Link>
+                )}
               </p>
             )}
           </>
