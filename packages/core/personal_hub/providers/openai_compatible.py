@@ -16,6 +16,7 @@ from personal_hub.providers.base import (
     Capability,
     ChatChunk,
     ChatRequest,
+    EmbeddingResult,
     HealthResult,
     ProviderConnection,
     RemoteModel,
@@ -145,3 +146,26 @@ class OpenAICompatibleAdapter:
             raise ProviderError("PROVIDER_TIMEOUT", "Таймаут провайдера", True) from exc
         except httpx.RequestError as exc:
             raise ProviderError("PROVIDER_UNREACHABLE", "Провайдер недоступен") from exc
+
+    async def embed(
+        self, connection: ProviderConnection, texts: list[str], model: str
+    ) -> EmbeddingResult:
+        """Получает эмбеддинги батча текстов через POST /embeddings."""
+        url = f"{connection.base_url.rstrip('/')}/embeddings"
+        payload = {"model": model, "input": texts}
+        try:
+            async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_SECONDS) as client:
+                resp = await client.post(
+                    url, json=payload, headers=self._headers(connection)
+                )
+        except httpx.TimeoutException as exc:
+            raise ProviderError("PROVIDER_TIMEOUT", "Таймаут провайдера", True) from exc
+        except httpx.RequestError as exc:
+            raise ProviderError("PROVIDER_UNREACHABLE", "Провайдер недоступен") from exc
+
+        if resp.status_code != 200:
+            raise normalize_http_status(resp.status_code)
+
+        data = resp.json().get("data", [])
+        vectors = [item["embedding"] for item in data]
+        return EmbeddingResult(vectors=vectors, model=model)

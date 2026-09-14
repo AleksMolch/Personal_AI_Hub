@@ -84,6 +84,14 @@ class ChatChunk:
     finish_reason: str | None = None
 
 
+@dataclass
+class EmbeddingResult:
+    """Результат эмбеддинга батча текстов."""
+
+    vectors: list[list[float]]
+    model: str = ""
+
+
 class ProviderAdapter(Protocol):
     """Контракт адаптера провайдера.
 
@@ -106,3 +114,11 @@ class ChatProvider(ProviderAdapter, Protocol):
     def stream_chat(
         self, connection: ProviderConnection, request: ChatRequest
     ) -> AsyncIterator[ChatChunk]: ...
+
+
+class EmbeddingProvider(ProviderAdapter, Protocol):
+    """Адаптер с поддержкой эмбеддингов."""
+
+    async def embed(
+        self, connection: ProviderConnection, texts: list[str], model: str
+    ) -> EmbeddingResult: ...

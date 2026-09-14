@@ -323,3 +323,24 @@ header.row {
 .badge.retryable {
   color: #f1c40f;
 }
+
+.kb-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  color: var(--fg);
+  margin-bottom: 0.25rem;
+}
+
+.kb-item.active {
+  background: var(--border);
+}
+
+.citation {
+  border-left: 3px solid var(--accent);
+  padding: 0.4rem 0.8rem;
+  margin-top: 0.5rem;
+  background: #1a1d23;
+  border-radius: 6px;
+}

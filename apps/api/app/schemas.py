@@ -291,3 +291,66 @@ class JobOut(BaseModel):
 
 class DeleteAssetResponse(BaseModel):
     job_id: uuid.UUID
+
+
+# ---- Knowledge / RAG --------------------------------------------------------
+
+
+class KnowledgeBaseCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=256)
+    embedding_model_profile_id: uuid.UUID
+
+
+class KnowledgeBaseUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=256)
+    embedding_model_profile_id: uuid.UUID | None = None
+
+
+class KnowledgeBaseOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    embedding_model_profile_id: uuid.UUID | None
+    embedding_version: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class DocumentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    title: str
+    status: str
+    error_code: str | None
+    asset_id: uuid.UUID
+    created_at: datetime
+
+
+class KnowledgeBaseDetail(KnowledgeBaseOut):
+    documents: list[DocumentOut] = Field(default_factory=list)
+
+
+class DocumentCreateResponse(BaseModel):
+    document_id: uuid.UUID
+    job_id: uuid.UUID
+
+
+class QueryRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=10_000)
+    top_k: int = Field(default=5, ge=1, le=20)
+
+
+class Citation(BaseModel):
+    chunk_id: str
+    document_id: str
+    document_title: str
+    text: str
+    page: int | None
+    score: float
+
+
+class QueryResult(BaseModel):
+    sufficient: bool
+    citations: list[Citation]

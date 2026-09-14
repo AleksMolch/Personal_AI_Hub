@@ -29,7 +29,10 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  headers.set("Content-Type", "application/json");
+  // Для FormData не задаём Content-Type (браузер добавит boundary сам).
+  if (!(init.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
@@ -156,6 +159,39 @@ export interface Job {
   finished_at: string | null;
 }
 
+export interface KnowledgeBase {
+  id: string;
+  name: string;
+  embedding_model_profile_id: string | null;
+  embedding_version: string;
+}
+
+export interface KnowledgeDocument {
+  id: string;
+  title: string;
+  status: string;
+  error_code: string | null;
+  asset_id: string;
+}
+
+export interface KnowledgeBaseDetail extends KnowledgeBase {
+  documents: KnowledgeDocument[];
+}
+
+export interface Citation {
+  chunk_id: string;
+  document_id: string;
+  document_title: string;
+  text: string;
+  page: number | null;
+  score: number;
+}
+
+export interface QueryResult {
+  sufficient: boolean;
+  citations: Citation[];
+}
+
 export const api = {
   login: (username: string, password: string) =>
     request<TokenResponse>("/api/v1/auth/login", {
@@ -237,4 +273,28 @@ export const api = {
     request<Job>(`/api/v1/jobs/${id}/retry`, { method: "POST" }),
   cancelJob: (id: string) =>
     request<Job>(`/api/v1/jobs/${id}/cancel`, { method: "POST" }),
+  knowledgeBases: () => request<KnowledgeBase[]>("/api/v1/knowledge-bases"),
+  createKnowledgeBase: (name: string, embeddingModelProfileId: string) =>
+    request<KnowledgeBase>("/api/v1/knowledge-bases", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        embedding_model_profile_id: embeddingModelProfileId,
+      }),
+    }),
+  getKnowledgeBase: (id: string) =>
+    request<KnowledgeBaseDetail>(`/api/v1/knowledge-bases/${id}`),
+  uploadDocument: (kbId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ document_id: string; job_id: string }>(
+      `/api/v1/knowledge-bases/${kbId}/documents`,
+      { method: "POST", body: form },
+    );
+  },
+  queryKnowledgeBase: (kbId: string, text: string, topK = 5) =>
+    request<QueryResult>(`/api/v1/knowledge-bases/${kbId}/query`, {
+      method: "POST",
+      body: JSON.stringify({ text, top_k: topK }),
+    }),
 };

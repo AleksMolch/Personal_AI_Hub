@@ -29,6 +29,7 @@ from app.api.conversations import router as conversations_router
 from app.api.generations import router as generations_router
 from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
+from app.api.knowledge import router as knowledge_router
 from app.api.models import router as models_router
 from app.api.prices import router as prices_router
 from app.api.providers import router as providers_router
@@ -191,6 +192,7 @@ def create_app() -> FastAPI:
     app.include_router(prices_router)
     app.include_router(assets_router)
     app.include_router(jobs_router)
+    app.include_router(knowledge_router)
 
     return app
 

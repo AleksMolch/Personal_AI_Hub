@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     blob_store_driver: str = "local"
     blob_local_root: str = "/data/assets"
 
+    # Векторное хранилище (qdrant | memory).
+    vector_store_driver: str = "qdrant"
+
     # Логирование и тесты.
     log_level: str = "INFO"
     run_live_tests: bool = False

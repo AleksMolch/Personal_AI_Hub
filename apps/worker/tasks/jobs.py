@@ -2,7 +2,8 @@
 
 Celery-задача запускает async-функцию execute_job, которая переводит задачу
 queued/retryable -> running -> completed/failed. Обработчики регистрируются
-по типу Job. Idempotency: повторный запуск завершённой задачи не выполняется.
+по типу Job (см. worker.tasks.ingest). Idempotency: повторный запуск
+завершённой задачи не выполняется.
 """
 from __future__ import annotations
 
@@ -13,8 +14,9 @@ from collections.abc import Awaitable, Callable
 
 from personal_hub.db.base import utcnow
 from personal_hub.db.engine import get_session_factory
-from personal_hub.jobs import JobStatus, JobType, assert_transition
-from personal_hub.models import Asset, Job
+from personal_hub.jobs import JobStatus, assert_transition
+from personal_hub.models import Job
+from sqlalchemy import select
 
 from worker.celery_app import app
 
@@ -24,38 +26,14 @@ logger = logging.getLogger("worker.jobs")
 _HANDLERS: dict[str, Callable[[uuid.UUID], Awaitable[dict]]] = {}
 
 
-def register_handler(job_type: JobType):
-    """Декоратор регистрации обработчика задачи."""
+def register_handler(job_type: str):
+    """Декоратор регистрации обработчика задачи по типу."""
 
     def decorator(fn: Callable[[uuid.UUID], Awaitable[dict]]):
-        _HANDLERS[job_type.value] = fn
+        _HANDLERS[job_type] = fn
         return fn
 
     return decorator
-
-
-async def _handle_document_delete(job_id: uuid.UUID) -> dict:
-    """Удаляет blob ассета и сам ассет (идемпотентно)."""
-    factory = get_session_factory()
-    async with factory() as session:
-        job = await session.get(Job, job_id)
-        if job is None:
-            return {"deleted": False}
-        asset_id = (job.input_json or {}).get("asset_id")
-        deleted = False
-        if asset_id:
-            asset = await session.get(Asset, uuid.UUID(asset_id))
-            if asset is not None:
-                from personal_hub.blobstore import get_blob_store
-
-                await get_blob_store().delete(asset.blob_key)
-                await session.delete(asset)
-                deleted = True
-                await session.commit()
-        return {"deleted_asset_id": asset_id, "deleted": deleted}
-
-
-register_handler(JobType.DOCUMENT_DELETE)(_handle_document_delete)
 
 
 async def _dispatch(job_id: uuid.UUID) -> dict:
@@ -79,8 +57,6 @@ async def execute_job(job_id: uuid.UUID) -> None:
     factory = get_session_factory()
 
     async with factory() as session:
-        from sqlalchemy import select
-
         result = await session.execute(
             select(Job).where(Job.id == job_id).with_for_update()
         )

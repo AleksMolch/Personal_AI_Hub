@@ -67,7 +67,19 @@
 - [ ] Периодический beat для reconciliation (сейчас лениво при чтении)
 - [ ] Реальное наполнение document_ingest (срез 6)
 
-### 6. Документы и RAG — ⬜
+### 6. Документы и RAG — ✅
+- [x] Парсеры TXT/MD/PDF (pypdf)/DOCX (python-docx)
+- [x] Чанкинг с overlap и локацией (страница/позиция) + checksum
+- [x] Embedding-адаптер (OpenAI-compatible POST /embeddings)
+- [x] VectorStore: Qdrant + InMemory; коллекция на версию эмбеддинг-модели
+- [x] Модели KnowledgeBase/Document/Chunk + миграция 0006
+- [x] Worker document_ingest (parse→chunk→embed→Qdrant+DB), delete с очисткой векторов
+- [x] API: /knowledge-bases (CRUD, upload document, query с цитатами)
+- [x] Порог релевантности → sufficient=false (не выдумывает источник)
+- [x] UI: страница баз знаний (создание, загрузка, RAG-запрос)
+- [ ] LLM-синтез ответа с цитатами (пока retrieval-only)
+- [ ] OCR-профиль для сканов (срез 7)
+
 ### 7. Таблицы и OCR — ⬜
 ### 8. Release candidate — ⬜
 
@@ -89,3 +101,4 @@
   в базовой валюте бюджета с сохранением provenance (price_snapshot_id, fx_rate_id).
 - Reconciliation задач — ленивая (при чтении), не периодическая (beat добавим позже).
 - Отмена задачи работает для queued; cooperative cancel для running — в срезе 6.
+- RAG возвращает цитаты (retrieval); LLM-синтез ответа — следующий срез.

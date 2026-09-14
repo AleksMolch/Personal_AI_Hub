@@ -374,3 +374,70 @@ class Job(Base, TimestampMixin):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class KnowledgeBase(Base, TimestampMixin):
+    """База знаний пользователя с профилем/версией эмбеддингов."""
+
+    __tablename__ = "knowledge_bases"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    embedding_model_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("model_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # Версия индекса: определяет имя коллекции в векторном хранилище.
+    embedding_version: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
+class Document(Base, TimestampMixin):
+    """Документ в базе знаний (обёртка над Asset + статус индексации)."""
+
+    __tablename__ = "documents"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    knowledge_base_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowledge_bases.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("assets.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class Chunk(Base, TimestampMixin):
+    """Чанк документа: текст + метаданные локации + id вектора.
+
+    PostgreSQL хранит метаданные; Qdrant — вектор и payload.
+    """
+
+    __tablename__ = "chunks"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    vector_id: Mapped[str] = mapped_column(String(128), nullable=False)

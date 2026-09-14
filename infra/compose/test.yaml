@@ -15,6 +15,7 @@ services:
       APP_ENV: test
       BLOB_STORE_DRIVER: local
       BLOB_LOCAL_ROOT: /tmp/pah-test-assets
+      VECTOR_STORE_DRIVER: memory
     command:
       - sh
       - -c
