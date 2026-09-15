@@ -114,3 +114,47 @@ async def test_retry_and_cancel(client: AsyncClient) -> None:
     cancelled = await client.post(f"/api/v1/jobs/{job_id}/cancel", headers=headers)
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "cancelled"
+
+
+async def test_cancel_running_sets_flag(client: AsyncClient) -> None:
+    headers, user_id = await _bootstrap(client)
+
+    factory = get_session_factory()
+    async with factory() as session:
+        job = Job(
+            user_id=uuid.UUID(user_id),
+            type="document_ingest",
+            status=JobStatus.RUNNING.value,
+            heartbeat_at=datetime.now(timezone.utc),
+        )
+        session.add(job)
+        await session.commit()
+        job_id = job.id
+
+    # cooperative cancel: статус остаётся running, флаг выставляется.
+    resp = await client.post(f"/api/v1/jobs/{job_id}/cancel", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "running"
+    assert body["cancel_requested"] is True
+
+
+async def test_execute_cancelled_queued_job(client: AsyncClient) -> None:
+    headers, user_id = await _bootstrap(client)
+
+    factory = get_session_factory()
+    async with factory() as session:
+        job = Job(
+            user_id=uuid.UUID(user_id),
+            type="document_delete",
+            status=JobStatus.QUEUED.value,
+            cancel_requested=True,
+        )
+        session.add(job)
+        await session.commit()
+        job_id = job.id
+
+    await execute_job(job_id)
+
+    job = (await client.get(f"/api/v1/jobs/{job_id}", headers=headers)).json()
+    assert job["status"] == "cancelled"

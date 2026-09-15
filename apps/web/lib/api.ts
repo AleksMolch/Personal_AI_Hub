@@ -154,6 +154,7 @@ export interface Job {
   error_code: string | null;
   error_detail_safe: string | null;
   attempts: number;
+  cancel_requested: boolean;
   submitted_at: string | null;
   started_at: string | null;
   finished_at: string | null;

@@ -63,6 +63,7 @@
 - [x] Reconciliation «мёртвых» задач (worker lost → retryable/failed)
 - [x] API: /assets (upload/list/get/content/delete→job), /jobs (list/get/retry/cancel)
 - [x] Удаление ассета через document_delete job (безопасно, идемпотентно)
+- [x] Cooperative cancel для running-задач (флаг cancel_requested)
 - [x] UI: страница задач (статус, повтор, отмена)
 - [ ] Периодический beat для reconciliation (сейчас лениво при чтении)
 - [ ] Реальное наполнение document_ingest (срез 6)
@@ -124,5 +125,5 @@
 - Цены вводятся вручную (импорт из API провайдера — позже). Все стоимости считаются
   в базовой валюте бюджета с сохранением provenance (price_snapshot_id, fx_rate_id).
 - Reconciliation задач — через Celery beat (каждую минуту) + лениво при чтении.
-- Отмена задачи работает для queued; cooperative cancel для running — не реализован.
+- Отмена задачи: queued — сразу, running — cooperative (флаг cancel_requested).
 - OCR запускается только для страниц PDF без текстового слоя; ошибки OCR игнорируются.

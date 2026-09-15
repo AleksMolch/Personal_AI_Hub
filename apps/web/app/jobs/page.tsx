@@ -90,9 +90,11 @@ export default function JobsPage() {
             {(j.status === "failed" || j.status === "retryable") && (
               <button onClick={() => onRetry(j.id)}>Повторить</button>
             )}
-            {j.status === "queued" && (
+            {(j.status === "queued" || j.status === "running") && (
               <button className="danger" onClick={() => onCancel(j.id)}>
-                Отменить
+                {j.status === "running" && j.cancel_requested
+                  ? "Отменяется…"
+                  : "Отменить"}
               </button>
             )}
           </div>

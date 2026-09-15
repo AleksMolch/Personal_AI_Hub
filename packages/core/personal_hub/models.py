@@ -374,6 +374,8 @@ class Job(Base, TimestampMixin):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Флаг cooperative cancel: worker проверяет его во время выполнения.
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class KnowledgeBase(Base, TimestampMixin):

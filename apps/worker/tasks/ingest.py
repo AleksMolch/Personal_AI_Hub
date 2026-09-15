@@ -11,7 +11,7 @@ import uuid
 from personal_hub.blobstore import get_blob_store
 from personal_hub.chunking import chunk_document
 from personal_hub.db.engine import get_session_factory
-from personal_hub.jobs import JobType
+from personal_hub.jobs import JobCancelledError, JobType
 from personal_hub.knowledge import collection_name
 from personal_hub.models import (
     Asset,
@@ -34,6 +34,15 @@ from worker.tasks.jobs import register_handler
 logger = logging.getLogger("worker.ingest")
 
 EMBED_BATCH_SIZE = 32
+
+
+async def _check_cancelled(job_id: uuid.UUID) -> None:
+    """Проверяет флаг отмены задачи; бросает JobCancelledError при отмене."""
+    factory = get_session_factory()
+    async with factory() as session:
+        job = await session.get(Job, job_id)
+        if job is not None and job.cancel_requested:
+            raise JobCancelledError()
 
 
 async def _embedding_connection(session, kb: KnowledgeBase):
@@ -103,9 +112,12 @@ async def ingest_document(job_id: uuid.UUID) -> dict:
         await _set_document_status(document_id, "failed", "EMPTY_DOCUMENT")
         raise ValueError("документ не содержит текста")
 
+    await _check_cancelled(job_id)
+
     adapter = get_adapter(connection.provider_type)
     vectors: list[list[float]] = []
     for start in range(0, len(chunks), EMBED_BATCH_SIZE):
+        await _check_cancelled(job_id)
         batch = chunks[start : start + EMBED_BATCH_SIZE]
         result = await adapter.embed(connection, [c.text for c in batch], embedding_model)
         vectors.extend(result.vectors)

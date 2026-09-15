@@ -284,6 +284,7 @@ class JobOut(BaseModel):
     error_code: str | None
     error_detail_safe: str | None
     attempts: int
+    cancel_requested: bool
     submitted_at: datetime | None
     started_at: datetime | None
     finished_at: datetime | None

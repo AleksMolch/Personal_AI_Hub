@@ -14,7 +14,7 @@ from collections.abc import Awaitable, Callable
 
 from personal_hub.db.base import utcnow
 from personal_hub.db.engine import get_session_factory
-from personal_hub.jobs import JobStatus, assert_transition
+from personal_hub.jobs import JobCancelledError, JobStatus, assert_transition
 from personal_hub.models import Job
 from sqlalchemy import select
 
@@ -67,6 +67,12 @@ async def execute_job(job_id: uuid.UUID) -> None:
         if current not in (JobStatus.QUEUED, JobStatus.RETRYABLE):
             # Уже выполняется или завершена — не трогаем.
             return
+        if job.cancel_requested:
+            assert_transition(current, JobStatus.CANCELLED)
+            job.status = JobStatus.CANCELLED.value
+            job.finished_at = utcnow()
+            await session.commit()
+            return
         assert_transition(current, JobStatus.RUNNING)
         job.status = JobStatus.RUNNING.value
         job.started_at = utcnow()
@@ -86,6 +92,16 @@ async def execute_job(job_id: uuid.UUID) -> None:
             job.finished_at = utcnow()
             job.heartbeat_at = utcnow()
             job.output_json = output or {}
+            await session.commit()
+    except JobCancelledError:
+        async with factory() as session:
+            job = await session.get(Job, job_id)
+            if job is None:
+                return
+            assert_transition(JobStatus(job.status), JobStatus.CANCELLED)
+            job.status = JobStatus.CANCELLED.value
+            job.finished_at = utcnow()
+            job.heartbeat_at = utcnow()
             await session.commit()
     except Exception as exc:
         logger.exception("job_failed")

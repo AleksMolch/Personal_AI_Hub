@@ -84,20 +84,29 @@ async def retry_job(session: AsyncSession, job_id: uuid.UUID, user_id: uuid.UUID
     job.status = JobStatus.QUEUED.value
     job.error_code = None
     job.error_detail_safe = None
+    job.cancel_requested = False
     await session.commit()
     enqueue_task(RUN_JOB_TASK, [str(job.id)])
     return job
 
 
 async def cancel_job(session: AsyncSession, job_id: uuid.UUID, user_id: uuid.UUID) -> Job:
-    """Отменяет задачу, находящуюся в очереди (queued -> cancelled)."""
+    """Отменяет задачу: queued — сразу, running — cooperative flag."""
     job = await _owned_job(session, job_id, user_id)
     current = JobStatus(job.status)
-    if current != JobStatus.QUEUED:
+    if current == JobStatus.QUEUED:
+        assert_transition(current, JobStatus.CANCELLED)
+        job.status = JobStatus.CANCELLED.value
+        job.finished_at = utcnow()
+    elif current == JobStatus.RUNNING:
+        # Cooperative cancel: worker сам завершит задачу, проверив флаг.
+        job.cancel_requested = True
+    elif current == JobStatus.RETRYABLE:
+        assert_transition(current, JobStatus.CANCELLED)
+        job.status = JobStatus.CANCELLED.value
+        job.finished_at = utcnow()
+    else:
         raise ValueError(f"задача в статусе {current.value} не может быть отменена")
-    assert_transition(current, JobStatus.CANCELLED)
-    job.status = JobStatus.CANCELLED.value
-    job.finished_at = utcnow()
     await session.commit()
     return job
 

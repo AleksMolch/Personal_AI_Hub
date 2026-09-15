@@ -40,12 +40,16 @@ class InvalidJobTransitionError(Exception):
         self.code = "INVALID_JOB_TRANSITION"
 
 
+class JobCancelledError(Exception):
+    """Задача была отменена (cooperative cancel) во время выполнения."""
+
+
 # Разрешённые переходы. FAILED -> QUEUED (retry) и RETRYABLE -> QUEUED.
 _ALLOWED_TRANSITIONS: dict[JobStatus, set[JobStatus]] = {
     JobStatus.QUEUED: {JobStatus.RUNNING, JobStatus.CANCELLED},
     JobStatus.RUNNING: {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED},
     JobStatus.FAILED: {JobStatus.QUEUED, JobStatus.RETRYABLE},
-    JobStatus.RETRYABLE: {JobStatus.QUEUED},
+    JobStatus.RETRYABLE: {JobStatus.QUEUED, JobStatus.CANCELLED},
     JobStatus.COMPLETED: set(),
     JobStatus.CANCELLED: set(),
 }
