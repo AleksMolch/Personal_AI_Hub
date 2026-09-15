@@ -5,10 +5,18 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import uuid
 from decimal import Decimal
 
 from httpx import AsyncClient
+
+from personal_hub.budget import BudgetExceededError
+from personal_hub.db.engine import get_session_factory
+from personal_hub.models import PriceSnapshot
+
+from app.billing import check_and_reserve, get_or_create_budget
 
 
 async def _bootstrap(client: AsyncClient) -> dict:
@@ -16,6 +24,11 @@ async def _bootstrap(client: AsyncClient) -> dict:
         "/api/v1/auth/bootstrap", json={"username": "admin", "password": "supersecret"}
     )
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
+async def _user_id(client: AsyncClient, headers: dict) -> str:
+    me = await client.get("/api/v1/auth/me", headers=headers)
+    return me.json()["id"]
 
 
 async def _model(client: AsyncClient, headers: dict, mock_provider) -> str:
@@ -155,3 +168,47 @@ async def test_message_requires_price(client: AsyncClient, mock_provider) -> Non
         headers=headers,
     )
     assert resp.status_code == 400
+
+
+async def test_budget_concurrency(client: AsyncClient) -> None:
+    """Два параллельных резервирования: лимит пропускает ровно одно.
+
+    Проверяет SELECT FOR UPDATE: без блокировки строки бюджета оба запроса
+    увидели бы нулевой остаток и обошли бы лимит.
+    """
+    headers = await _bootstrap(client)
+    user_id = uuid.UUID(await _user_id(client, headers))
+
+    # Оценка = 0.003 (1000 вход @ $1/1M + 1000 выход @ $2/1M); лимит 0.004.
+    factory = get_session_factory()
+    async with factory() as session:
+        budget = await get_or_create_budget(session, user_id)
+        budget.daily_limit = Decimal("0.004")
+        budget.monthly_limit = Decimal("0.004")
+        await session.commit()
+
+    price = PriceSnapshot(
+        model_profile_id=uuid.uuid4(),
+        currency="USD",
+        input_per_million=Decimal("1"),
+        output_per_million=Decimal("2"),
+    )
+
+    async def reserve_once() -> str:
+        async with factory() as session:
+            try:
+                await check_and_reserve(
+                    session,
+                    user_id,
+                    price=price,
+                    estimated_units={"input_tokens": 1000, "output_tokens": 1000},
+                    message_id=None,
+                )
+                await session.commit()
+                return "ok"
+            except BudgetExceededError:
+                await session.rollback()
+                return "exceeded"
+
+    results = await asyncio.gather(reserve_once(), reserve_once())
+    assert sorted(results) == ["exceeded", "ok"]

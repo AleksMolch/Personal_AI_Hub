@@ -29,6 +29,7 @@ from personal_hub.models import (
     UsageRecord,
 )
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 RESERVATION_TTL_SECONDS = 300  # 5 минут
@@ -82,6 +83,25 @@ async def get_or_create_budget(session: AsyncSession, user_id: uuid.UUID) -> Bud
         budget = Budget(user_id=user_id)
         session.add(budget)
         await session.flush()
+    return budget
+
+
+async def _lock_budget(session: AsyncSession, user_id: uuid.UUID) -> Budget:
+    """Гарантирует строку бюджета и блокирует её (SELECT FOR UPDATE).
+
+    Блокировка сериализует параллельные проверки лимита: второй запрос ждёт
+    коммита первого и видит обновлённый остаток, не обходя бюджет.
+    """
+    # INSERT ... ON CONFLICT DO NOTHING — идемпотентно создаёт строку без гонки.
+    stmt = pg_insert(Budget).values(
+        id=uuid.uuid4(), user_id=user_id, currency="USD"
+    ).on_conflict_do_nothing(index_elements=["user_id"])
+    await session.execute(stmt)
+    budget = await session.scalar(
+        select(Budget).where(Budget.user_id == user_id).with_for_update()
+    )
+    if budget is None:  # практически недостижимо после ON CONFLICT DO NOTHING
+        raise RuntimeError("не удалось создать/заблокировать бюджет")
     return budget
 
 
@@ -161,7 +181,7 @@ async def check_and_reserve(
     )
     # Ленивое освобождение просроченных резервирований перед проверкой.
     await reconcile_expired_reservations(session)
-    budget = await get_or_create_budget(session, user_id)
+    budget = await _lock_budget(session, user_id)
     base_amount, _ = await convert_to_base(
         session, estimated_amount, price.currency, budget.currency
     )
