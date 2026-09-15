@@ -230,6 +230,15 @@ export interface Price {
   effective_at: string;
 }
 
+export interface FxRate {
+  id: string;
+  from_currency: string;
+  to_currency: string;
+  rate: string;
+  source: string;
+  fetched_at: string;
+}
+
 export const api = {
   login: (username: string, password: string) =>
     request<TokenResponse>("/api/v1/auth/login", {
@@ -371,6 +380,16 @@ export const api = {
     currency: string;
   }) =>
     request<Price>("/api/v1/prices", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  fxRates: () => request<FxRate[]>("/api/v1/fx-rates"),
+  createFxRate: (input: {
+    from_currency: string;
+    to_currency: string;
+    rate: string;
+  }) =>
+    request<FxRate>("/api/v1/fx-rates", {
       method: "POST",
       body: JSON.stringify(input),
     }),

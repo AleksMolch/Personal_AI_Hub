@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   api,
   Budget,
+  FxRate,
   getToken,
   setToken,
   UsageRecord,
@@ -13,7 +14,7 @@ import {
 } from "@/lib/api";
 
 /**
- * Дашборд расходов: сводка за день/месяц, лимиты и последние записи.
+ * Дашборд расходов: сводка за день/месяц, лимиты, курсы валют и записи.
  * Все денежные значения отображаются как строки (Decimal) без потери точности.
  */
 export default function UsagePage() {
@@ -21,21 +22,27 @@ export default function UsagePage() {
   const [summary, setSummary] = useState<UsageSummary | null>(null);
   const [budget, setBudget] = useState<Budget | null>(null);
   const [records, setRecords] = useState<UsageRecord[]>([]);
+  const [fxRates, setFxRates] = useState<FxRate[]>([]);
   const [daily, setDaily] = useState("");
   const [monthly, setMonthly] = useState("");
+  const [fromCur, setFromCur] = useState("RUB");
+  const [toCur, setToCur] = useState("USD");
+  const [rate, setRate] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   async function load() {
     try {
-      const [s, b, r] = await Promise.all([
+      const [s, b, r, f] = await Promise.all([
         api.usageSummary(),
         api.getBudget(),
         api.usageRecords(),
+        api.fxRates(),
       ]);
       setSummary(s);
       setBudget(b);
       setRecords(r);
+      setFxRates(f);
       setDaily(b.daily_limit ?? "");
       setMonthly(b.monthly_limit ?? "");
     } catch (err) {
@@ -81,6 +88,28 @@ export default function UsagePage() {
   function money(v: string | null | undefined): string {
     if (v === null || v === undefined) return "—";
     return `${v} ${summary?.currency ?? ""}`.trim();
+  }
+
+  async function onAddRate(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!rate.trim()) {
+      setError("Укажите курс.");
+      return;
+    }
+    try {
+      await api.createFxRate({
+        from_currency: fromCur,
+        to_currency: toCur,
+        rate: rate.trim(),
+      });
+      setRate("");
+      await load();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Не удалось сохранить курс.",
+      );
+    }
   }
 
   return (
@@ -153,6 +182,43 @@ export default function UsagePage() {
           <p className="error" role="alert">
             {error}
           </p>
+        )}
+      </form>
+
+      <form onSubmit={onAddRate} className="card">
+        <h2>Курсы валют</h2>
+        <div className="row">
+          <input
+            value={fromCur}
+            onChange={(e) => setFromCur(e.target.value.toUpperCase())}
+            placeholder="Из"
+            maxLength={3}
+            aria-label="Валюта из"
+          />
+          <input
+            value={toCur}
+            onChange={(e) => setToCur(e.target.value.toUpperCase())}
+            placeholder="В"
+            maxLength={3}
+            aria-label="Валюта в"
+          />
+          <input
+            value={rate}
+            onChange={(e) => setRate(e.target.value)}
+            placeholder="Курс (напр. 0.011)"
+            inputMode="decimal"
+            aria-label="Курс"
+          />
+          <button type="submit">Добавить</button>
+        </div>
+        {fxRates.length > 0 && (
+          <div className="hint">
+            {fxRates.slice(0, 5).map((f) => (
+              <div key={f.id}>
+                {f.from_currency} → {f.to_currency}: {f.rate}
+              </div>
+            ))}
+          </div>
         )}
       </form>
 

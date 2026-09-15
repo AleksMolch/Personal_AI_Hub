@@ -388,3 +388,24 @@ class TableExportRequest(BaseModel):
     sql: str = Field(min_length=1, max_length=10_000)
     sheet: str | None = None
     format: str = Field(default="csv", pattern="^(csv|xlsx)$")
+
+
+# ---- Fx rates ---------------------------------------------------------------
+
+
+class FxRateCreate(BaseModel):
+    from_currency: str = Field(min_length=3, max_length=3)
+    to_currency: str = Field(min_length=3, max_length=3)
+    rate: Decimal = Field(gt=0)
+    source: str = Field(default="manual", max_length=64)
+
+
+class FxRateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    from_currency: str
+    to_currency: str
+    rate: Decimal
+    source: str
+    fetched_at: datetime

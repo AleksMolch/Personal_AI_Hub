@@ -46,13 +46,13 @@
 - [x] UsageRecord (units_json, cost_amount Decimal/NUMERIC, cost_state, price_snapshot_id, fx_rate_id)
 - [x] PriceSnapshot (versioned, валюта, effective_at, источник manual/api/url, вход/выход/кэш за 1M)
 - [x] FxRate (курс + источник + время) и конвертация без смешивания валют
-- [x] Бюджет: дневной/месячный hard limit, резервирование до вызова (транзакционно)
-- [x] Settlement после ответа; release при отмене/ошибке; ленивый reconcile просроченных
+- [x] GET/POST /fx-rates + поле «Курсы валют» в UI
+- [x] Бюджет: дневной/месячный hard limit, резервирование до вызова (SELECT FOR UPDATE)
+- [x] Settlement после ответа; release при отмене/ошибке; Celery beat reconcile
 - [x] estimated vs actual (usage от провайдера → actual, иначе estimated)
 - [x] Эндпоинты: /usage/summary, /usage/records (pagination), GET/PUT /budgets, GET/POST /prices
 - [x] Интеграция с чатом: цена обязательна, бюджет блокирует до провайдера (402 BUDGET_EXCEEDED)
-- [x] UI: dashboard расходов (день/месяц, токены, лимиты) + форма бюджета
-- [ ] Reconciliation в отдельную фоновую задачу (сейчас лениво при резервировании)
+- [x] UI: dashboard расходов (день/месяц, токены, лимиты, курсы) + форма бюджета
 - [ ] Импорт цен из API провайдера (сейчас manual)
 
 ### 5. Jobs и Assets — ✅

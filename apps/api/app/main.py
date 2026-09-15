@@ -26,6 +26,7 @@ from app.api.assets import router as assets_router
 from app.api.auth import router as auth_router
 from app.api.budgets import router as budgets_router
 from app.api.conversations import router as conversations_router
+from app.api.fx_rates import router as fx_rates_router
 from app.api.generations import router as generations_router
 from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
@@ -195,6 +196,7 @@ def create_app() -> FastAPI:
     app.include_router(jobs_router)
     app.include_router(knowledge_router)
     app.include_router(tables_router)
+    app.include_router(fx_rates_router)
 
     return app
 
