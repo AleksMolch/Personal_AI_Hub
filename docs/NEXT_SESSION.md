@@ -79,6 +79,7 @@ make backup         # архив в backups/
    - `make lint`: убран сломанный `--entrypoint ruff`, добавлен `apps/worker`.
 
 6. **Windows clean install** — не проверялся (тестировался Linux/Docker на macOS).
+   Готовый чек-лист и команды без `make` — в `docs/WINDOWS_HANDOFF.md`.
 
 7. **Live provider certification** — отдельные тесты реальных API с бюджетом
    (`RUN_LIVE_TESTS=1`, по умолчанию выключены).

@@ -1,0 +1,6 @@
+# Нормализация переводов строк.
+# CRLF на Windows ломает shebang (`#!/bin/sh\r`) shell-скриптов, которые
+# COPY-ятся в Linux-контейнеры Docker и запускаются в Git Bash/WSL.
+# eol=lf принудительно держит эти файлы с LF-окончаниями на любой ОС.
+*.sh text eol=lf
+Makefile text eol=lf
