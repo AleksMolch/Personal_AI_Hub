@@ -5,10 +5,12 @@
 """
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from httpx import AsyncClient
+from sqlalchemy import text
 
 from personal_hub.db.engine import get_session_factory
 from personal_hub.jobs import JobStatus
@@ -137,6 +139,24 @@ async def test_cancel_running_sets_flag(client: AsyncClient) -> None:
     body = resp.json()
     assert body["status"] == "running"
     assert body["cancel_requested"] is True
+
+
+def test_engine_usable_across_event_loops() -> None:
+    """Регрессия: движок не должен переиспользовать соединения между event loop.
+
+    Worker запускает каждую Celery-задачу через asyncio.run (новый loop на
+    задачу). Пул asyncpg, переиспользуя соединение между loop, падал с
+    «attached to a different loop». NullPool устраняет переиспользование.
+    """
+    factory = get_session_factory()
+
+    async def _touch() -> None:
+        async with factory() as session:
+            await session.execute(text("SELECT 1"))
+
+    # Два последовательных asyncio.run(), как это делает worker-обёртка run_job.
+    asyncio.run(_touch())
+    asyncio.run(_touch())
 
 
 async def test_execute_cancelled_queued_job(client: AsyncClient) -> None:

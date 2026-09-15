@@ -39,7 +39,7 @@ doctor: ## Диагностика без вывода секретов
 ## ---- Качество кода ---------------------------------------------------------
 
 lint: ## Ruff + ESLint + Prettier
-	@docker run --rm -v "$$PWD":/work -w /work --entrypoint ruff ghcr.io/astral-sh/ruff:0.16.7 check apps/api packages/core
+	@docker run --rm -v "$$PWD":/work -w /work ghcr.io/astral-sh/ruff:0.16.7 check apps/api packages/core apps/worker
 	@cd apps/web && npx eslint . && npx prettier --check .
 
 typecheck: ## mypy + tsc

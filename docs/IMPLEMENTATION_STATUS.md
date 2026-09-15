@@ -64,6 +64,7 @@
 - [x] API: /assets (upload/list/get/content/delete→job), /jobs (list/get/retry/cancel)
 - [x] Удаление ассета через document_delete job (безопасно, идемпотентно)
 - [x] Cooperative cancel для running-задач (флаг cancel_requested)
+- [x] Worker: NullPool для asyncpg (устранён «attached to a different loop» при `asyncio.run` на задачу)
 - [x] UI: страница задач (статус, повтор, отмена)
 - [ ] Периодический beat для reconciliation (сейчас лениво при чтении)
 - [ ] Реальное наполнение document_ingest (срез 6)

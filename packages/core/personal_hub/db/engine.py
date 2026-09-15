@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 from personal_hub.config import get_settings
 
@@ -22,13 +23,20 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
 def get_engine() -> AsyncEngine:
-    """Возвращает (и при необходимости создаёт) общий async-движок."""
+    """Возвращает (и при необходимости создаёт) общий async-движок.
+
+    Используется NullPool: worker запускает каждую задачу в отдельном
+    event loop (asyncio.run), поэтому переиспользование asyncpg-соединений
+    между loop приводит к «attached to a different loop». NullPool создаёт
+    соединение на время сессии и закрывает его после, устраняя проблему.
+    Для локального MVP накладные расходы пула незначительны.
+    """
     global _engine
     if _engine is None:
         settings = get_settings()
         _engine = create_async_engine(
             settings.database_url,
-            pool_pre_ping=True,
+            poolclass=NullPool,
             echo=False,
         )
     return _engine

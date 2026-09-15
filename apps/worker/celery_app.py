@@ -5,12 +5,16 @@ Broker и backend — Valkey. Сериализация JSON (без pickle). В�
 """
 from __future__ import annotations
 
+import sys
+
 from celery import Celery, signals
 from personal_hub.config import get_settings
 from personal_hub.logging_setup import apply_json_handler, configure_logging
 
 settings = get_settings()
-configure_logging(settings.log_level, service="worker")
+# worker и beat используют один celery_app.py, но команда отличается («worker»/«beat»).
+_service = "beat" if "beat" in sys.argv else "worker"
+configure_logging(settings.log_level, service=_service)
 
 app = Celery(
     "personal_hub",

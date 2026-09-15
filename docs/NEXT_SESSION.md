@@ -48,7 +48,7 @@ make up             # запуск стека
 make down           # остановка
 make lint typecheck # ruff/mypy + tsc/eslint
 make test-unit      # 66 тестов (docker)
-make test-integration  # 31 тест (изолированный postgres+valkey)
+make test-integration  # 37 тестов (изолированный postgres+valkey)
 make test-e2e       # Playwright (нужен запущенный стек + admin/supersecret123)
 make smoke          # smoke поднятого экземпляра
 make backup         # архив в backups/
@@ -56,26 +56,26 @@ make backup         # архив в backups/
 
 ## 2. Что ещё предстоит (известные пробелы)
 
-Приоритет (security/cost correctness → infra → UX):
+Приоритет (security/cost correctness → infra → UX). Пункты 1–2 и 4–5 закрыты,
+а также исправлены два найденных при проверке бага (см. ниже).
 
-1. **Конкурентность бюджета** (`apps/api/app/billing.py`, `check_and_reserve`).
-   Нет `SELECT ... FOR UPDATE` на строку бюджета — два параллельных запроса
-   теоретически могут пройти проверку лимита одновременно. Добавить блокировку
-   строки бюджета + интеграционный тест на параллельные запросы.
+1. ✅ **Конкурентность бюджета** — `SELECT ... FOR UPDATE` + тест (0adf138).
 
-2. **Эндпоинты FxRate** (`apps/api/app/api/`). Логика конвертации валют и модель
-   `FxRate` есть, но нет `GET/POST /api/v1/fx-rates` и поля в UI. Сейчас цена не в
-   USD блокирует запрос (`FX_RATE_MISSING`), а создать курс нельзя. Добавить
-   CRUD-эндпоинт + страницу/раздел в UI (или на странице «Расходы»).
+2. ✅ **Эндпоинты FxRate** — `GET/POST /api/v1/fx-rates` + поле в UI (6e634f5).
 
 3. **Импорт цен из API провайдера.** Цены вводятся вручную; можно добавить
    `sync-models` с подтягиванием цен, где провайдер их отдаёт.
 
-4. **Cooperative cancel для running-задач.** Отмена работает только для queued;
-   для длинных задач (OCR/ingest) добавить проверку флага отмены внутри handler.
+4. ✅ **Cooperative cancel для running-задач** — флаг `cancel_requested` (a683c56).
 
-5. **JSON-логи Celery.** Логи worker/beat в дефолтном формате Celery; привести к
-   единому JSON-формату (см. `personal_hub/logging_setup.py`).
+5. ✅ **JSON-логи Celery** — worker/beat в едином JSON-формате (ff0ee18).
+
+   Дополнительно закрыто в текущей сессии:
+   - Worker: NullPool для asyncpg — устранён `RuntimeError: attached to a
+     different loop` (каждая задача запускалась через `asyncio.run`, а пул
+     переиспользовал loop-bound соединения). + регрессионный тест.
+   - beat логирует `"service": "beat"` (раньше «worker»).
+   - `make lint`: убран сломанный `--entrypoint ruff`, добавлен `apps/worker`.
 
 6. **Windows clean install** — не проверялся (тестировался Linux/Docker на macOS).
 
