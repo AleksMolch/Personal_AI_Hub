@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import AsyncIterator
+from decimal import Decimal, InvalidOperation
 
 import httpx
 
@@ -20,11 +21,15 @@ from personal_hub.providers.base import (
     HealthResult,
     ProviderConnection,
     RemoteModel,
+    RemotePricing,
 )
 from personal_hub.providers.errors import ProviderError, normalize_http_status
 
 DEFAULT_TIMEOUT_SECONDS = 15.0
 STREAM_READ_TIMEOUT_SECONDS = 180.0
+
+# OpenRouter-style pricing отдаёт цену за токен; PriceSnapshot хранит за 1M.
+_TOKENS_PER_MILLION = Decimal("1000000")
 
 # Понятные сообщения для пользователя по нормализованному коду.
 _MESSAGES: dict[str, str] = {
@@ -34,6 +39,44 @@ _MESSAGES: dict[str, str] = {
     "PROVIDER_RATE_LIMITED": "Провайдер временно ограничил частоту запросов (429).",
     "PROVIDER_ERROR": "Ошибка провайдера.",
 }
+
+
+def _parse_pricing(item: dict) -> RemotePricing | None:
+    """Извлекает цену модели из OpenRouter-style `pricing` (за токен → за 1M).
+
+    Возвращает None, если цены нет или она нечисловая (безопасно игнорируем,
+    чтобы синхронизация не падала на неожиданном формате провайдера).
+    """
+    pricing = item.get("pricing")
+    if not isinstance(pricing, dict):
+        return None
+    prompt = pricing.get("prompt")
+    completion = pricing.get("completion")
+    if prompt is None or completion is None:
+        return None
+    try:
+        input_pm = Decimal(str(prompt)) * _TOKENS_PER_MILLION
+        output_pm = Decimal(str(completion)) * _TOKENS_PER_MILLION
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    cache_read = pricing.get("cache_read")
+    cache_write = pricing.get("cache_write")
+    return RemotePricing(
+        input_per_million=input_pm,
+        output_per_million=output_pm,
+        cache_read_per_million=_to_per_million(cache_read),
+        cache_write_per_million=_to_per_million(cache_write),
+    )
+
+
+def _to_per_million(value: object) -> Decimal | None:
+    """Преобразует per-token значение в per-million; None для нечислового."""
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value)) * _TOKENS_PER_MILLION
+    except (InvalidOperation, TypeError, ValueError):
+        return None
 
 
 class OpenAICompatibleAdapter:
@@ -95,6 +138,7 @@ class OpenAICompatibleAdapter:
                     display_name=item.get("name") or external_id,
                     capabilities=[Capability.CHAT.value, Capability.STREAMING.value],
                     context_limit=item.get("context_length"),
+                    pricing=_parse_pricing(item),
                 )
             )
         return models

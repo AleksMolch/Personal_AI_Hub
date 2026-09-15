@@ -5,8 +5,9 @@
 """
 from __future__ import annotations
 
-import pytest
+from decimal import Decimal
 
+import pytest
 from personal_hub.providers.base import ProviderConnection
 from personal_hub.providers.errors import ProviderError
 from personal_hub.providers.openai_compatible import OpenAICompatibleAdapter
@@ -63,3 +64,37 @@ async def test_list_models_unauthorized_raises(mock_provider) -> None:
     with pytest.raises(ProviderError) as exc_info:
         await OpenAICompatibleAdapter().list_models(_connection(mock_provider))
     assert exc_info.value.code == "PROVIDER_UNAUTHORIZED"
+
+
+@pytest.mark.asyncio
+async def test_list_models_parses_pricing(mock_provider) -> None:
+    mock_provider.spec["/models"] = (
+        200,
+        '{"data": [{"id": "gpt-x", "pricing": {'
+        '"prompt": "0.0000025", "completion": "0.00001", '
+        '"cache_read": "0.00000025", "cache_write": "0.0000025"}}]}',
+    )
+    models = await OpenAICompatibleAdapter().list_models(_connection(mock_provider))
+    pricing = models[0].pricing
+    assert pricing is not None
+    assert pricing.input_per_million == Decimal("2.5")
+    assert pricing.output_per_million == Decimal("10")
+    assert pricing.cache_read_per_million == Decimal("0.25")
+    assert pricing.cache_write_per_million == Decimal("2.5")
+
+
+@pytest.mark.asyncio
+async def test_list_models_without_pricing(mock_provider) -> None:
+    mock_provider.spec["/models"] = (200, '{"data": [{"id": "gpt-x"}]}')
+    models = await OpenAICompatibleAdapter().list_models(_connection(mock_provider))
+    assert models[0].pricing is None
+
+
+@pytest.mark.asyncio
+async def test_list_models_ignores_malformed_pricing(mock_provider) -> None:
+    mock_provider.spec["/models"] = (
+        200,
+        '{"data": [{"id": "gpt-x", "pricing": {"prompt": "abc", "completion": "0.1"}}]}',
+    )
+    models = await OpenAICompatibleAdapter().list_models(_connection(mock_provider))
+    assert models[0].pricing is None

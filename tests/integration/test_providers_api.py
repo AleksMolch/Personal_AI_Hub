@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+from decimal import Decimal
+
 from httpx import AsyncClient
 
 
@@ -139,3 +141,70 @@ async def test_sync_models(client: AsyncClient, mock_provider) -> None:
     catalog = await client.get("/api/v1/models", headers=headers)
     assert catalog.status_code == 200
     assert len(catalog.json()) == 1
+
+
+async def test_sync_models_imports_pricing(client: AsyncClient, mock_provider) -> None:
+    headers = await _auth(client)
+    host, port = mock_provider.server_address
+    mock_provider.spec["/models"] = (
+        200,
+        '{"data": [{"id": "gpt-x", "pricing": {"prompt": "0.0000025", "completion": "0.00001"}}]}',
+    )
+    created = await _create_provider(client, headers, base_url=f"http://{host}:{port}")
+    resp = await client.post(
+        f"/api/v1/providers/{created['id']}/sync-models", headers=headers
+    )
+    assert resp.status_code == 200
+    model_id = resp.json()[0]["id"]
+
+    prices = (
+        await client.get(f"/api/v1/prices?model_profile_id={model_id}", headers=headers)
+    ).json()
+    assert len(prices) == 1
+    assert prices[0]["source"] == "api"
+    assert prices[0]["currency"] == "USD"
+    assert Decimal(prices[0]["input_per_million"]) == Decimal("2.5")
+    assert Decimal(prices[0]["output_per_million"]) == Decimal("10")
+
+    # Повторная синхронизация без изменения цены не плодит версии.
+    await client.post(f"/api/v1/providers/{created['id']}/sync-models", headers=headers)
+    prices = (
+        await client.get(f"/api/v1/prices?model_profile_id={model_id}", headers=headers)
+    ).json()
+    assert len(prices) == 1
+
+
+async def test_sync_models_does_not_override_manual_price(
+    client: AsyncClient, mock_provider
+) -> None:
+    headers = await _auth(client)
+    host, port = mock_provider.server_address
+    mock_provider.spec["/models"] = (
+        200,
+        '{"data": [{"id": "gpt-x", "pricing": {"prompt": "0.0000025", "completion": "0.00001"}}]}',
+    )
+    created = await _create_provider(client, headers, base_url=f"http://{host}:{port}")
+    resp = await client.post(
+        f"/api/v1/providers/{created['id']}/sync-models", headers=headers
+    )
+    model_id = resp.json()[0]["id"]
+
+    # Пользователь задаёт ручную цену (после первичного импорта).
+    await client.post(
+        "/api/v1/prices",
+        json={
+            "model_profile_id": model_id,
+            "input_per_million": "9.00",
+            "output_per_million": "8.00",
+            "currency": "USD",
+        },
+        headers=headers,
+    )
+
+    # Синхронизация не перезаписывает ручную цену и не плодит api-версии.
+    await client.post(f"/api/v1/providers/{created['id']}/sync-models", headers=headers)
+    prices = (
+        await client.get(f"/api/v1/prices?model_profile_id={model_id}", headers=headers)
+    ).json()
+    assert len(prices) == 2
+    assert {p["source"] for p in prices} == {"api", "manual"}

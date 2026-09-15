@@ -9,14 +9,15 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from personal_hub.db.engine import get_session
-from personal_hub.models import ModelProfile, ProviderCredential, User
-from personal_hub.providers.base import ProviderConnection
+from personal_hub.models import ModelProfile, PriceSnapshot, ProviderCredential, User
+from personal_hub.providers.base import ProviderConnection, RemotePricing
 from personal_hub.providers.presets import PRESETS
 from personal_hub.providers.registry import SUPPORTED_PROVIDER_TYPES, get_adapter
 from personal_hub.security.crypto import get_cipher, mask_secret
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.billing import get_latest_price
 from app.deps import get_current_user
 from app.schemas import (
     ModelProfileOut,
@@ -74,6 +75,43 @@ def _connection_for(provider: ProviderCredential) -> ProviderConnection:
         provider_type=provider.provider_type,
         base_url=provider.base_url,
         api_key=get_cipher().decrypt(provider.encrypted_secret),
+    )
+
+
+async def _import_price(
+    session: AsyncSession,
+    provider: ProviderCredential,
+    model: ModelProfile,
+    pricing: RemotePricing,
+) -> None:
+    """Создаёт PriceSnapshot из цены провайдера, если цена изменилась.
+
+    Ручная цена (source="manual") имеет приоритет и не перезаписывается.
+    Повторная синхронизация без изменения цены не плодит версии.
+    """
+    latest = await get_latest_price(session, model.id)
+    if latest is not None and latest.source == "manual":
+        return
+    if (
+        latest is not None
+        and latest.currency == provider.currency.upper()
+        and latest.input_per_million == pricing.input_per_million
+        and latest.output_per_million == pricing.output_per_million
+        and latest.cache_read_per_million == pricing.cache_read_per_million
+        and latest.cache_write_per_million == pricing.cache_write_per_million
+    ):
+        return
+    session.add(
+        PriceSnapshot(
+            model_profile_id=model.id,
+            currency=provider.currency.upper(),
+            input_per_million=pricing.input_per_million,
+            output_per_million=pricing.output_per_million,
+            cache_read_per_million=pricing.cache_read_per_million,
+            cache_write_per_million=pricing.cache_write_per_million,
+            source="api",
+            source_url=provider.base_url,
+        )
     )
 
 
@@ -228,6 +266,13 @@ async def sync_models(
             model.display_name = remote.display_name
             model.capabilities = remote.capabilities
             model.context_limit = remote.context_limit
+
+    # Моделям нужен id до создания привязанного PriceSnapshot.
+    await session.flush()
+
+    for remote in remote_models:
+        if remote.pricing is not None:
+            await _import_price(session, provider, existing[remote.external_id], remote.pricing)
 
     await session.commit()
     for model in existing.values():

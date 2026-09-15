@@ -53,7 +53,7 @@
 - [x] Эндпоинты: /usage/summary, /usage/records (pagination), GET/PUT /budgets, GET/POST /prices
 - [x] Интеграция с чатом: цена обязательна, бюджет блокирует до провайдера (402 BUDGET_EXCEEDED)
 - [x] UI: dashboard расходов (день/месяц, токены, лимиты, курсы) + форма бюджета
-- [ ] Импорт цен из API провайдера (сейчас manual)
+- [x] Импорт цен из API провайдера (sync-models подтягивает pricing, source="api")
 
 ### 5. Jobs и Assets — ✅
 - [x] BlobStore: протокол + LocalBlobStore (put/open/delete, sha256, лимит размера)
@@ -122,6 +122,8 @@
   для localhost приемлемо, для LAN нужно перейти на cookie или short-lived token.
 - Event-буфер генераций — in-memory (однопроцессный MVP); при рестарте незавершённые
   генерации помечаются interrupted.
-- Цены вводятся вручную (импорт из API провайдера — позже). Все стоимости считаются
-  в базовой валюте бюджета с сохранением provenance (price_snapshot_id, fx_rate_id).
+- Цены можно задать вручную или импортировать из API провайдера (sync-models,
+  где провайдер отдаёт pricing; ручная цена имеет приоритет). Все стоимости
+  считаются в базовой валюте бюджета с сохранением provenance
+  (price_snapshot_id, fx_rate_id).
 - OCR запускается только для страниц PDF без текстового слоя; ошибки OCR игнорируются.

@@ -63,8 +63,9 @@ make backup         # архив в backups/
 
 2. ✅ **Эндпоинты FxRate** — `GET/POST /api/v1/fx-rates` + поле в UI (6e634f5).
 
-3. **Импорт цен из API провайдера.** Цены вводятся вручную; можно добавить
-   `sync-models` с подтягиванием цен, где провайдер их отдаёт.
+3. ✅ **Импорт цен из API провайдера** — `sync-models` подтягивает pricing
+   (OpenRouter-style `pricing.prompt`/`completion`), создаёт `PriceSnapshot`
+   (source="api"); ручная цена имеет приоритет, повторный sync идемпотентен.
 
 4. ✅ **Cooperative cancel для running-задач** — флаг `cancel_requested` (a683c56).
 

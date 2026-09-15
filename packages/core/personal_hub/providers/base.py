@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol
 
@@ -45,6 +46,20 @@ class HealthResult:
     model_count: int = 0
 
 
+@dataclass(frozen=True)
+class RemotePricing:
+    """Цена модели от провайдера (за 1M токенов).
+
+    Валюту задаёт провайдер (`ProviderCredential.currency`), адаптер возвращает
+    только числа. Поля опциональны: не все провайдеры отдают cache-цены.
+    """
+
+    input_per_million: Decimal
+    output_per_million: Decimal
+    cache_read_per_million: Decimal | None = None
+    cache_write_per_million: Decimal | None = None
+
+
 @dataclass
 class RemoteModel:
     """Модель, полученная от провайдера (для синхронизации каталога)."""
@@ -54,6 +69,7 @@ class RemoteModel:
     capabilities: list[str] = field(default_factory=list)
     context_limit: int | None = None
     output_limit: int | None = None
+    pricing: RemotePricing | None = None
 
 
 @dataclass
