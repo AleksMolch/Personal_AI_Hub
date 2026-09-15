@@ -82,3 +82,16 @@ def configure_logging(level: str = "INFO", service: str = "api") -> None:
     # Приводим шумные сторонние логгеры к разумному уровню.
     logging.getLogger("uvicorn.access").setLevel("WARNING")
     logging.getLogger("httpx").setLevel("WARNING")
+
+
+def apply_json_handler(logger: logging.Logger) -> None:
+    """Заменяет обработчики логгера на JSON-форматтер (для Celery-логгеров).
+
+    Устанавливает propagate=False, чтобы избежать дублирования через root.
+    """
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(JsonFormatter())
+    logger.addHandler(handler)
+    logger.propagate = False

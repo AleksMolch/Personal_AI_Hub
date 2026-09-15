@@ -5,9 +5,9 @@ Broker и backend — Valkey. Сериализация JSON (без pickle). В�
 """
 from __future__ import annotations
 
-from celery import Celery
+from celery import Celery, signals
 from personal_hub.config import get_settings
-from personal_hub.logging_setup import configure_logging
+from personal_hub.logging_setup import apply_json_handler, configure_logging
 
 settings = get_settings()
 configure_logging(settings.log_level, service="worker")
@@ -23,6 +23,18 @@ app = Celery(
         "worker.tasks.maintenance",
     ],
 )
+
+
+@signals.after_setup_logger.connect
+def _json_celery_logger(logger, **kwargs) -> None:
+    """Переводит логгер `celery` на JSON-формат."""
+    apply_json_handler(logger)
+
+
+@signals.after_setup_task_logger.connect
+def _json_task_logger(logger, **kwargs) -> None:
+    """Переводит task-логгер на JSON-формат."""
+    apply_json_handler(logger)
 
 app.conf.update(
     task_serializer="json",

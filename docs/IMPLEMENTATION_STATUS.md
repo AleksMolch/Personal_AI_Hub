@@ -11,9 +11,9 @@
 
 ### 1. Репозиторий и локальный запуск — ✅
 - [x] Монорепозиторий, Makefile, compose.yaml, `.env.example`
-- [x] Сервисы web, api, worker, PostgreSQL, Valkey, Qdrant
+- [x] Сервисы web, api, worker, beat, PostgreSQL, Valkey, Qdrant
 - [x] `GET /api/v1/version`, `health/live`, `health/ready`
-- [x] Alembic-миграции (авто и идемпотентно), structured JSON-логи
+- [x] Alembic-миграции (авто и идемпотентно), structured JSON-логи (api + Celery)
 - [x] Healthchecks всех сервисов (проверено `docker compose up`)
 - [x] Smoke-скрипт (`make smoke`)
 - [x] CI: lint/types/unit/build/secret-scan
@@ -117,13 +117,10 @@
 - [ ] Backup/restore drill — скрипты есть, drill на срезе 8
 
 ## Известные ограничения
-- Celery-логи пока в дефолтном формате (JSON включу вместе с реальными задачами).
 - SSE-аутентификация через query-параметр token (EventSource не умеет заголовки);
   для localhost приемлемо, для LAN нужно перейти на cookie или short-lived token.
 - Event-буфер генераций — in-memory (однопроцессный MVP); при рестарте незавершённые
   генерации помечаются interrupted.
 - Цены вводятся вручную (импорт из API провайдера — позже). Все стоимости считаются
   в базовой валюте бюджета с сохранением provenance (price_snapshot_id, fx_rate_id).
-- Reconciliation задач — через Celery beat (каждую минуту) + лениво при чтении.
-- Отмена задачи: queued — сразу, running — cooperative (флаг cancel_requested).
 - OCR запускается только для страниц PDF без текстового слоя; ошибки OCR игнорируются.
