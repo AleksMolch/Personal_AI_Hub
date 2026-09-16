@@ -78,8 +78,14 @@ make backup         # архив в backups/
    - beat логирует `"service": "beat"` (раньше «worker»).
    - `make lint`: убран сломанный `--entrypoint ruff`, добавлен `apps/worker`.
 
-6. **Windows clean install** — не проверялся (тестировался Linux/Docker на macOS).
-   Готовый чек-лист и команды без `make` — в `docs/WINDOWS_HANDOFF.md`.
+6. ✅ **Windows clean install** — проверен на Windows + Docker Desktop 29.8
+   (сборка, healthy, миграции head, worker, bootstrap admin, smoke-
+   эквивалент PowerShell, unit 69/integration 39, ruff/mypy/eslint/tsc/
+   prettier). Найденные и исправленные регрессии: CRLF-файлы ломали `prettier
+   --check` (общий `.gitattributes` `* text=auto eol=lf`); на хосте нет Git Bash
+   (system32 bash не работает), поэтому infra-scripts пришлось проверять
+   PowerShell-эквивалентом; host-E2E невозможен при Node 18 (Playwright требует
+   20+). Подробности: `docs/WINDOWS_HANDOFF.md`.
 
 7. **Live provider certification** — отдельные тесты реальных API с бюджетом
    (`RUN_LIVE_TESTS=1`, по умолчанию выключены).

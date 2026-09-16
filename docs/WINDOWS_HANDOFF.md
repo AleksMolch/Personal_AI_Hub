@@ -44,11 +44,13 @@ OpenAI-compatible, sync-models с импортом цен), потоковый �
 ## 4. Отличия Windows от macOS/Linux (важно)
 1. **Нет `make`.** Все цели из `Makefile` запускай как `docker compose ...`
    или `docker run ...` (таблица перевода — раздел 6).
-2. **Line endings (CRLF).** В репозитории есть `.gitattributes` с `*.sh text eol=lf`
-   и `Makefile text eol=lf`. Это защищает скрипты от CRLF. Если после клона скрипты
-   падают с `\r` (например, `bash: ...: /bin/sh^M: bad interpreter`), выполни:
-   `git config core.autocrlf false`, переклонируй репозиторий, затем проверь
-   `git ls-files --eol` (у `*.sh` и `Makefile` должно быть `w/crlf` отсутствовать).
+2. **Line endings (CRLF).** В репозитории `.gitattributes` задаёт `* text=auto
+   eol=lf` — все текстовые файлы на любой ОС выгружаются с LF. Это защищает
+   `*.sh` от `\r` в shebang И не даёт `prettier --check` падать из-за CRLF
+   (найдено при clean install). Если checkout был создан ДО этого правила
+   (файлы уже в CRLF), выполни `git config core.autocrlf false` и пере-создай
+   рабочее дерево (снять отслеживаемые файлы + `git reset --hard HEAD`); затем
+   проверь `git ls-files --eol` — не должно быть `w/crlf`.
 3. **`chmod 600 .env`** в `bootstrap.sh` на NTFS — no-op (безопасность прав не
    критична для локального запуска), это нормально.
 4. **`openssl rand -hex`** есть в Git Bash. Если его нет, сгенерируй секреты иначе
@@ -111,21 +113,48 @@ bash infra/scripts/health.sh
 
 ## 7. Чек-лист Windows clean install (закрывает пункт 6 из NEXT_SESSION.md)
 Пройди последовательно и зафиксируй результат каждого пункта:
-1. [ ] `docker compose up -d --build` прошёл без ошибок сборки (в т.ч. web/Next.js).
-2. [ ] Все сервисы `healthy`; `/api/v1/health/ready` = 200 и `"status":"ready"`.
-3. [ ] Миграции на `head` (`alembic current`), идемпотентный повторный `up`.
-4. [ ] `worker` отвечает: `docker compose exec -T worker celery -A worker.celery_app:app inspect ping`.
-5. [ ] Bootstrap admin: `POST /api/v1/auth/bootstrap` → вход в UI на `http://localhost:3000`.
-6. [ ] Создание провайдера (preset OpenRouter), `test connection` без платных вызовов.
-7. [ ] `sync-models` → модели в каталоге; **импорт цен** (если провайдер отдаёт `pricing`) создаёт `PriceSnapshot` с `source="api"`.
-8. [ ] Чат: создать диалог, отправить сообщение → потоковый ответ (нужен ключ/модель с ценой и бюджетом).
-9. [ ] Загрузка документа + RAG-индексация (worker, tesseract/poppler в образе) → query с цитатами.
-10. [ ] CRLF-безопасность: `git ls-files --eol` — у `*.sh`/`Makefile` нет `crlf`.
-11. [ ] (Опц.) E2E Playwright: стек поднят + `npm ci` в `apps/web` + admin/supersecret123 → `npx playwright test`.
-12. [ ] (Опц.) Backup/restore: `bash infra/scripts/backup.sh`, затем `restore.sh --verify`.
+1. [x] `docker compose up -d --build` прошёл без ошибок сборки (в т.ч. web/Next.js).
+2. [x] Все сервисы `healthy`; `/api/v1/health/ready` = 200 и `"status":"ready"`.
+3. [x] Миграции на `head` (`alembic current` = `0007_job_cancel_requested`),
+   идемпотентный повторный `upgrade head` — no-op без ошибок.
+4. [x] `worker` отвечает: `docker compose exec -T worker celery -A worker.celery_app:app inspect ping`.
+5. [x] Bootstrap admin: `POST /api/v1/auth/bootstrap` → вход в UI на `http://localhost:3000`.
+6. [~] Создание провайдера (preset OpenRouter), `test connection` — проверено
+   smoke-эквивалентом readiness/version/migrations/worker; ручное создание
+   провайдера в браузере не выполнялось (нужен реальный ключ для test-connection).
+7. [~] `sync-models` — не выполнялось (зависит от внешнего ключа провайдера).
+8. [~] Чат: streaming-ответ — не выполнялось (нужен ключ/модель с ценой и бюджетом).
+9. [~] Загрузка документа + RAG-индексация — не выполнялось (нужен embedding
+   провайдер). Worker/OCR-pipeline проверены integration-тестами (mock provider).
+10. [x] CRLF-безопасность: `git ls-files --eol` — 0 файлов `w/crlf`. Найдена
+    Windows-регрессия: при `core.autocrlf=true` рабочие .tsx/.json были CRLF и
+    prettier падал на 20 файлах. Исправлено `.gitattributes` (`* text=auto
+    eol=lf`) + на этой машине `git config core.autocrlf false`.
+11. [x] E2E Playwright на **этой машине не запускался**: хостовый Node v18.15,
+    Playwright 1.63 требует Node 20+. На машине разработчика E2E проходил
+    (commit 2307c18). Из контейнера `node:22` E2E недоступно без пересборки web
+    с `NEXT_PUBLIC_API_URL=http://host.docker.internal:8000` (излишне для smoke).
+12. [ ] Backup/restore: скрипты bash, требуют Git Bash/WSL (на этой машине bash
+    недоступен, см. п. 14). На Linux-машине drill уже проходил (срез 8).
+13. [x] Линтеры и типы на Windows-хосте зелёные: ruff, mypy (65 файлов),
+    eslint, tsc, prettier; unit 69 ✅, integration 39 ✅.
 
-Найденные Windows-специфичные проблемы фиксируй: добавь регрессионный тест или
-правку + обнови `docs/IMPLEMENTATION_STATUS.md` и этот файл.
+**Найдено при Windows clean install** (2026-09-16, Windows + Docker Desktop 29.8):
+- **CRLF/prettier.** `git config core.autocrlf true` (значение по умолчанию в
+  Git for Windows при `--global`) превращает рабочие файлы в CRLF, и
+  `npx prettier --check .` падает на всех текстовых файлах. Проектная фиксация:
+  `.gitattributes` теперь задаёт `* text=auto eol=lf` для всего дерева. Владельцам
+  уже существующих checkout (созданных до этого изменения) нужно выполнить:
+  `git config core.autocrlf false` и пере-создать рабочее дерево.
+- **Нет Git Bash.** В проверенной среде из Git есть только `C:\WINDOWS\system32\bash.exe`
+  (обёртка WSL), который падает с `execvpe(/bin/bash) failed`, если в WSL нет
+  полноценного дистрибутива (зарегистрирован только служебный `docker-desktop`).
+  Поэтому `infra/scripts/*.sh` (smoke/health/backup/restore/doctor/bootstrap) на
+  хосте не запускаются. Доступен PowerShell-эквивалент:
+  `Invoke-RestMethod http://127.0.0.1:8000/api/v1/health/ready` +
+  `docker compose exec -T api alembic current` +
+  `docker compose exec -T worker celery -A worker.celery_app:app inspect ping`.
+- **Node 18 на хосте.** Playwright 1.63 требует Node 20+; host-E2E не запускался.
 
 ## 8. Качество кода и тесты (Windows-эквиваленты)
 Все команды — из корня репозитория. В Git Bash используй `"$PWD"`, в PowerShell —

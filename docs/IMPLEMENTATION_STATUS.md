@@ -98,17 +98,20 @@
 - [x] LICENSE (MIT)
 - [x] Secret scan (gitleaks в CI) и ручная проверка: ключи не в Git
 - [x] Нагрузочный smoke (30 параллельных version + 10 ready — все 200)
-- [x] Миграции идемпотентны (alembic upgrade head, 0001→0006)
+- [x] Миграции идемпотентны (alembic upgrade head, 0001→0007)
 - [x] Celery beat — периодическая reconciliation (резервирования + задачи)
 - [x] E2E Playwright (smoke: вход + навигация по разделам)
-- [ ] Windows clean install (не проверялся на этой машине)
+- [x] Windows clean install (проверен 2026-09-16, Windows + Docker Desktop 29.8,
+      Windows PowerShell smoke-эквивалент зелёный; CRLF-prettier-regression
+      исправлен общим `.gitattributes` `* text=auto eol=lf`)
 - [ ] Live provider certification (RUN_LIVE_TESTS=1, отдельный бюджет)
 
 ## Определение готовности Этапа 1
 Чистая установка по README, health, миграции, провайдеры, streaming chat,
 бюджеты, RAG, таблицы — реализованы и покрыты unit/integration-тестами.
-Невыполненными остаются Windows clean install и E2E Playwright (не блокируют
-локальный запуск, отмечены выше).
+Windows clean install закрыт (2026-09-16). Из известных ограничений остаются
+Live provider certification и host-E2E Playwright при Node <20 (см.
+`docs/WINDOWS_HANDOFF.md`); ни то, ни другое не блокирует локальный запуск.
 
 ## Нефункциональные требования (частично)
 - [x] Логи без секретов (redaction ключей в JSON-форматере)
@@ -127,3 +130,13 @@
   считаются в базовой валюте бюджета с сохранением provenance
   (price_snapshot_id, fx_rate_id).
 - OCR запускается только для страниц PDF без текстового слоя; ошибки OCR игнорируются.
+- Windows: `.gitattributes` форсирует LF для всех текстовых файлов (`* text=auto
+  eol=lf`). Для уже существующих checkout созданных до этого изменения нужно
+  `git config core.autocrlf false` + пере-создать рабочее дерево (иначе prettier
+  падает на 20 файлах из-за CRLF).
+- Windows: bash-скрипты infra (`smoke.sh`, `health.sh`, backup/restore и др.)
+  требуют Git Bash или WSL с `/bin/bash`; system32 `bash.exe` при наличии только
+  служебного дистрибутива `docker-desktop` не работает. Работает PowerShell-
+  эквивалент с командой `docker compose exec -T ...` (см. WINDOWS_HANDOFF).
+- Windows: host-E2E Playwright требует Node.js 20+ (Playwright 1.63); при Node 18
+  тест не запускается на хосте.

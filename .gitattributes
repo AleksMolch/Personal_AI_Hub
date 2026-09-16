@@ -1,6 +1,9 @@
 # Нормализация переводов строк.
 # CRLF на Windows ломает shebang (`#!/bin/sh\r`) shell-скриптов, которые
-# COPY-ятся в Linux-контейнеры Docker и запускаются в Git Bash/WSL.
-# eol=lf принудительно держит эти файлы с LF-окончаниями на любой ОС.
-*.sh text eol=lf
-Makefile text eol=lf
+# COPY-ятся в Linux-контейнеры Docker и запускаются в Git Bash/WSL,
+# а также заставляет prettier (endOfLine: lf по умолчанию) считать все
+# текстовые файлы «не отформатированными» при `git config core.autocrlf true`
+# (найдено при Windows clean install).
+# text=auto eol=lf: текстовые файлы всегда хранятся и выгружаются с LF,
+# бинарные (определяются по NUL-байтам) не трогаются.
+* text=auto eol=lf
