@@ -36,6 +36,10 @@
 | pytesseract | 0.3.13 | Apache-2.0 |
 | pdf2image | 1.17.0 | MIT |
 
+Опциональный OCR-backend (НЕ входит в базовые зависимости): rapidocr_onnxruntime
+(Apache-2.0) + onnxruntime (MIT, функционально включён в пакет RapidOCR).
+Устанавливается отдельно при включении `OCR_BACKEND=rapidocr` (см. README_staff).
+
 Dev-инструменты: pytest (MIT), pytest-asyncio (Apache-2.0), ruff (MIT),
 mypy (MIT).
 

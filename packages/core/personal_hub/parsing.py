@@ -1,14 +1,27 @@
 """Разбор документов в текст (per-page).
 
-Поддерживает TXT/MD (plain), PDF (pypdf) и DOCX (python-docx). Возвращает
-список страниц с текстом. Используются permissive-парсеры (не PyMuPDF).
+Поддерживает TXT/MD (plain), PDF (pypdf + OCR пустых страниц), DOCX
+(python-docx) и изображения (PNG/JPG/TIFF/WEBP — OCR). Возвращает список
+страниц с текстом. Используются permissive-парсеры (не PyMuPDF). Ошибки OCR
+поднимаются как OcrError (код виден в статусе задачи), а не скрываются.
 """
 from __future__ import annotations
 
 import io
 from dataclasses import dataclass
 
-SUPPORTED_EXTENSIONS = {"txt", "md", "markdown", "pdf", "docx"}
+SUPPORTED_EXTENSIONS = {
+    "txt", "md", "markdown", "pdf", "docx",
+    "png", "jpg", "jpeg", "tif", "tiff", "webp", "bmp",
+}
+
+_IMAGE_MIMES = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+    "image/tiff": "tiff",
+    "image/bmp": "bmp",
+}
 
 
 @dataclass
@@ -38,6 +51,8 @@ def _detect_format(filename: str, mime_type: str) -> str:
         "application/msword",
     }:
         return "docx"
+    if mime_type in _IMAGE_MIMES:
+        return _IMAGE_MIMES[mime_type]
     return ext
 
 
@@ -50,6 +65,8 @@ def parse_document(filename: str, mime_type: str, data: bytes) -> list[TextPage]
         return _parse_docx(data)
     if fmt in {"txt", "md", "markdown"}:
         return [TextPage(page=1, text=data.decode("utf-8", errors="replace"))]
+    if fmt in SUPPORTED_EXTENSIONS and fmt not in {"txt", "md", "markdown", "pdf", "docx"}:
+        return _parse_image(data)
     raise UnsupportedFormatError(fmt)
 
 
@@ -79,22 +96,24 @@ def _parse_pdf(data: bytes) -> list[TextPage]:
 
 
 def _ocr_pages(data: bytes, page_indices: list[int]) -> dict[int, str]:
-    """OCR заданных страниц PDF. Ошибки OCR не пробрасываются (asset не портится)."""
-    try:
-        import pytesseract
-        from pdf2image import convert_from_bytes
+    """OCR заданных страниц PDF; ошибки поднимаются как OcrError."""
+    from personal_hub.ocr import ocr_pdf_pages
 
-        start = min(page_indices)
-        end = max(page_indices)
-        images = convert_from_bytes(data, first_page=start, last_page=end)
-        result: dict[int, str] = {}
-        for offset, image in enumerate(images):
-            page_num = start + offset
-            if page_num in page_indices:
-                result[page_num] = pytesseract.image_to_string(image, lang="rus+eng") or ""
-        return result
-    except Exception:
-        return {}
+    return ocr_pdf_pages(data, page_indices)
+
+
+def _parse_image(data: bytes) -> list[TextPage]:
+    """OCR одиночного изображения документа (отдельный page)."""
+    from PIL import Image
+
+    from personal_hub.config import get_settings
+    from personal_hub.ocr import parse_languages, recognize_image
+
+    image = Image.open(io.BytesIO(data))
+    image.load()
+    settings = get_settings()
+    result = recognize_image(image, parse_languages(settings.ocr_languages))
+    return [TextPage(page=1, text=result.text)]
 
 
 def _parse_docx(data: bytes) -> list[TextPage]:

@@ -2,12 +2,22 @@
 
 document_ingest: parse -> chunk -> embed -> Qdrant + Chunk rows.
 document_delete: удаление ассета и/или чанков+векторов документа.
+Эмбеддинги проходят через бюджетный контур (при наличии цены модели), чтобы
+расходы на индексацию не уходили мимо UsageRecord.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 
+from app.billing import (
+    cancel_external_call,
+    embedding_units,
+    get_latest_price,
+    reserve_external_call,
+    settle_external_call,
+)
 from personal_hub.blobstore import get_blob_store
 from personal_hub.chunking import chunk_document
 from personal_hub.db.engine import get_session_factory
@@ -20,8 +30,10 @@ from personal_hub.models import (
     Job,
     KnowledgeBase,
     ModelProfile,
+    PriceSnapshot,
     ProviderCredential,
 )
+from personal_hub.ocr import OcrError
 from personal_hub.parsing import UnsupportedFormatError, parse_document
 from personal_hub.providers.base import ProviderConnection
 from personal_hub.providers.registry import get_adapter
@@ -76,8 +88,21 @@ async def _set_document_status(document_id: uuid.UUID, status: str, error_code: 
 
 
 async def ingest_document(job_id: uuid.UUID) -> dict:
-    """Индексирует документ: parse -> chunk -> embed -> Qdrant + Chunk rows."""
+    """Индексирует документ: parse -> chunk -> embed -> Qdrant + Chunk rows.
+
+    Parse выполняется в отдельном потоке, чтобы не блокировать event loop
+    worker'а при рендере/OCR. Распознавание текста, chunking и запись в
+    хранилища идут в основном потоке Celery (async). Ошибки UnsupportedFormatError
+    и OcrError возвращают видимый error_code в статус документа.
+    """
     factory = get_session_factory()
+    user_id: uuid.UUID
+    provider_id: uuid.UUID
+    model_profile_id: uuid.UUID
+    embedding_model: str
+    collection: str
+    price: PriceSnapshot | None
+
     async with factory() as session:
         job = await session.get(Job, job_id)
         if job is None:
@@ -93,17 +118,23 @@ async def ingest_document(job_id: uuid.UUID) -> dict:
         if asset is None:
             return {"error": "asset not found"}
         connection, model = await _embedding_connection(session, kb)
+        price = await get_latest_price(session, model.id)
         asset_key = asset.blob_key
         asset_filename = asset.original_name
         asset_mime = asset.mime_type
         collection = collection_name(kb.id, kb.embedding_version)
         embedding_model = model.external_model_id
+        user_id = job.user_id
+        provider_id = model.provider_id
+        model_profile_id = model.id
 
     try:
         store = get_blob_store()
         data = b"".join([c async for c in store.open(asset_key)])
-        pages = parse_document(asset_filename, asset_mime, data)
-    except UnsupportedFormatError as exc:
+        # parse_document — синхронная функция; вызываем через to_thread, чтобы
+        # не блокировать event loop при pdf2image/OCR на тяжёлых документах.
+        pages = await asyncio.to_thread(parse_document, asset_filename, asset_mime, data)
+    except (UnsupportedFormatError, OcrError) as exc:
         await _set_document_status(document_id, "failed", exc.code)
         raise
 
@@ -114,53 +145,83 @@ async def ingest_document(job_id: uuid.UUID) -> dict:
 
     await _check_cancelled(job_id)
 
-    adapter = get_adapter(connection.provider_type)
-    vectors: list[list[float]] = []
-    for start in range(0, len(chunks), EMBED_BATCH_SIZE):
-        await _check_cancelled(job_id)
-        batch = chunks[start : start + EMBED_BATCH_SIZE]
-        result = await adapter.embed(connection, [c.text for c in batch], embedding_model)
-        vectors.extend(result.vectors)
-
-    vector_store = get_vector_store()
-    await vector_store.ensure_collection(collection, len(vectors[0]))
-
-    points: list[VectorPoint] = []
-    chunk_rows: list[Chunk] = []
-    for chunk, vector in zip(chunks, vectors, strict=True):
-        chunk_id = uuid.uuid4()
-        vector_id = str(chunk_id)
-        points.append(
-            VectorPoint(
-                id=vector_id,
-                vector=vector,
-                payload={
-                    "document_id": str(document_id),
-                    "kb_id": str(kb.id),
-                    "page": chunk.page,
-                    "position": chunk.position,
-                },
+    # Резервирование стоимости эмбеддингов ДО вызова провайдера (если для
+    # модели задана цена). Если цена не задана — расход не учтён, но
+    # индексация продолжается (цена неизвестна → бюджет не контролируется).
+    billing = None
+    if price is not None:
+        units = embedding_units("\n".join(c.text for c in chunks), "embedding")
+        async with factory() as session:
+            billing = await reserve_external_call(
+                session, user_id, price=price, units=units
             )
-        )
-        chunk_rows.append(
-            Chunk(
-                document_id=document_id,
-                content=chunk.text,
-                position=chunk.position,
-                page=chunk.page,
-                checksum=chunk.checksum,
-                vector_id=vector_id,
+    else:
+        logger.info("ingest_no_price=%s document=%s", embedding_model, document_id)
+
+    try:
+        adapter = get_adapter(connection.provider_type)
+        vectors: list[list[float]] = []
+        for start in range(0, len(chunks), EMBED_BATCH_SIZE):
+            await _check_cancelled(job_id)
+            batch = chunks[start : start + EMBED_BATCH_SIZE]
+            result = await adapter.embed(connection, [c.text for c in batch], embedding_model)
+            vectors.extend(result.vectors)
+
+        vector_store = get_vector_store()
+        await vector_store.ensure_collection(collection, len(vectors[0]))
+
+        points: list[VectorPoint] = []
+        chunk_rows: list[Chunk] = []
+        for chunk, vector in zip(chunks, vectors, strict=True):
+            chunk_id = uuid.uuid4()
+            vector_id = str(chunk_id)
+            points.append(
+                VectorPoint(
+                    id=vector_id,
+                    vector=vector,
+                    payload={
+                        "document_id": str(document_id),
+                        "kb_id": str(kb.id),
+                        "page": chunk.page,
+                        "position": chunk.position,
+                    },
+                )
             )
-        )
+            chunk_rows.append(
+                Chunk(
+                    document_id=document_id,
+                    content=chunk.text,
+                    position=chunk.position,
+                    page=chunk.page,
+                    checksum=chunk.checksum,
+                    vector_id=vector_id,
+                )
+            )
 
-    await vector_store.upsert(collection, points)
+        await vector_store.upsert(collection, points)
 
-    async with factory() as session:
-        session.add_all(chunk_rows)
-        document = await session.get(Document, document_id)
-        if document is not None:
-            document.status = "ready"
-        await session.commit()
+        async with factory() as session:
+            session.add_all(chunk_rows)
+            document = await session.get(Document, document_id)
+            if document is not None:
+                document.status = "ready"
+            await session.commit()
+    except Exception:
+        if billing is not None:
+            async with factory() as session:
+                await cancel_external_call(session, billing=billing)
+        raise
+
+    if billing is not None:
+        async with factory() as session:
+            await settle_external_call(
+                session,
+                user_id=user_id,
+                provider_id=provider_id,
+                model_profile_id=model_profile_id,
+                billing=billing,
+                usage=None,
+            )
 
     return {"chunks": len(chunks), "document_id": str(document_id)}
 

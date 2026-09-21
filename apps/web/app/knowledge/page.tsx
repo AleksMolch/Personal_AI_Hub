@@ -169,7 +169,7 @@ export default function KnowledgePage() {
               <input
                 type="file"
                 onChange={onUpload}
-                accept=".txt,.md,.pdf,.docx"
+                accept=".txt,.md,.pdf,.docx,.png,.jpg,.jpeg,.tif,.tiff,.webp,.bmp"
               />
             </label>
             <p className="hint">Документы:</p>

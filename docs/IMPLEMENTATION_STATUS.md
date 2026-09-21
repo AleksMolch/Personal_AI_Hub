@@ -52,6 +52,9 @@
 - [x] estimated vs actual (usage от провайдера → actual, иначе estimated)
 - [x] Эндпоинты: /usage/summary, /usage/records (pagination), GET/PUT /budgets, GET/POST /prices
 - [x] Интеграция с чатом: цена обязательна, бюджет блокирует до провайдера (402 BUDGET_EXCEEDED)
+- [x] Интеграция embeddings и RAG-синтеза: worker ingest, embedding RAG-запроса и
+      LLM-синтез резервируют бюджет до вызова и пишут UsageRecord
+      (операции embedding/rag_query_embedding/rag_synthesis, message_id=NULL)
 - [x] UI: dashboard расходов (день/месяц, токены, лимиты, курсы) + форма бюджета
 - [x] Импорт цен из API провайдера (sync-models подтягивает pricing, source="api")
 
@@ -70,15 +73,20 @@
 - [ ] Реальное наполнение document_ingest (срез 6)
 
 ### 6. Документы и RAG — ✅
-- [x] Парсеры TXT/MD/PDF (pypdf)/DOCX (python-docx)
+- [x] Парсеры TXT/MD/PDF (pypdf)/DOCX (python-docx) + изображения (PNG/JPG/TIFF/WEBP/BMP)
 - [x] OCR-профиль для сканов PDF (tesseract + poppler, ошибки не портят asset)
+- [x] Ошибки OCR больше не проглатываются: `OcrError` со стабильными кодами
+      (OCR_UNAVAILABLE/OCR_FAILED/OCR_TIMEOUT), видимы в статусе документа
+- [x] Выбор OCR-backend: `OCR_BACKEND=tesseract|rapidocr|auto` (+fallback на Tesseract),
+      лимиты `OCR_MAX_PAGES`/`OCR_MAX_IMAGE_SIDE`, per-page таймаут (ADR-0002)
 - [x] Чанкинг с overlap и локацией (страница/позиция) + checksum
 - [x] Embedding-адаптер (OpenAI-compatible POST /embeddings)
 - [x] VectorStore: Qdrant + InMemory; коллекция на версию эмбеддинг-модели
 - [x] Модели KnowledgeBase/Document/Chunk + миграция 0006
 - [x] Worker document_ingest (parse→chunk→embed→Qdrant+DB), delete с очисткой векторов
 - [x] API: /knowledge-bases (CRUD, upload document, query с цитатами)
-- [x] LLM-синтез ответа с цитатами (chat_model_profile_id)
+- [x] LLM-синтез ответа с цитатами (chat_model_profile_id; без цены модели синтез
+      не вызывается — answer=None)
 - [x] Порог релевантности → sufficient=false (не выдумывает источник)
 - [x] UI: страница баз знаний (создание, загрузка, RAG-запрос с ответом)
 
@@ -89,6 +97,9 @@
 - [x] Экспорт результата CSV/XLSX
 - [x] API: /assets/{id}/table (preview/query/export), UI страница «Таблицы»
 - [x] OCR-профиль для сканов PDF (tesseract+poppler в образе)
+- [x] RapidOCR backend абстрагирован (`OcrBackend` protocol) и реализован как ленивый
+      импорт; не входит в базовые зависимости (ставится отдельно, см. README_staff);
+      `OCR_BACKEND=tesseract` — полный rollback (ADR-0002)
 
 ### 8. Release candidate — ✅ (частично)
 - [x] Backup/restore drill (backup.sh + restore-verify прошли)
@@ -129,7 +140,9 @@ Live provider certification и host-E2E Playwright при Node <20 (см.
   где провайдер отдаёт pricing; ручная цена имеет приоритет). Все стоимости
   считаются в базовой валюте бюджета с сохранением provenance
   (price_snapshot_id, fx_rate_id).
-- OCR запускается только для страниц PDF без текстового слоя; ошибки OCR игнорируются.
+- OCR запускается только для страниц PDF без текстового слоя и для загруженных
+  изображений; ошибки OCR (OcrError) фиксируются в статусе документа/job
+  (OCR_UNAVAILABLE/OCR_FAILED/OCR_TIMEOUT), а не проглатываются.
 - Windows: `.gitattributes` форсирует LF для всех текстовых файлов (`* text=auto
   eol=lf`). Для уже существующих checkout созданных до этого изменения нужно
   `git config core.autocrlf false` + пере-создать рабочее дерево (иначе prettier

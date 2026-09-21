@@ -246,7 +246,7 @@ async def finalize_generation(
     user_id: uuid.UUID,
     provider_id: uuid.UUID,
     model_profile_id: uuid.UUID,
-    message_id: uuid.UUID,
+    message_id: uuid.UUID | None,
     usage: dict | None,
     billing: BillingContext,
     provider_request_id: str | None,
@@ -324,3 +324,71 @@ def estimate_units(messages_text: str, output_limit: int | None) -> dict:
     input_tokens = estimate_tokens(messages_text)
     output_tokens = output_limit or DEFAULT_OUTPUT_TOKENS
     return {"input_tokens": input_tokens, "output_tokens": output_tokens}
+
+
+# ---------------------------------------------------------------------------
+# Помощники для внешних платных вызовов МИМО чат-потока (embeddings, синтез).
+# Они используют тот же контур резервирования/финализации, что и чат, чтобы
+# бюджеты учитывали все расходы пользователя, а не только генерации.
+# ---------------------------------------------------------------------------
+
+
+def embedding_units(text: str, operation: str) -> dict:
+    """Единицы для эмбеддинга: только входные токены (оценка по символам)."""
+    return {
+        "operation": operation,
+        "input_tokens": estimate_tokens(text),
+        "output_tokens": 0,
+    }
+
+
+async def reserve_external_call(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    price: PriceSnapshot,
+    units: dict,
+) -> BillingContext:
+    """Резервирует оценочную сумму внешнего вызова и фиксирует транзакцию.
+
+    В отличие от чат-потока, где резерв коммитится вместе с сообщением, здесь
+    у нас нет `messages`-записи: резервирование оформляется отдельной короткой
+    транзакцией, чтобы не держать блокировку бюджета во время HTTP-вызова.
+    """
+    ctx = await check_and_reserve(
+        session, user_id, price=price, estimated_units=units, message_id=None
+    )
+    await session.commit()
+    return ctx
+
+
+async def settle_external_call(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    provider_id: uuid.UUID,
+    model_profile_id: uuid.UUID,
+    billing: BillingContext,
+    usage: dict | None,
+) -> UsageRecord | None:
+    """Фиксирует расход по внешнему вызову и закрывает резервирование."""
+    record = await finalize_generation(
+        session,
+        user_id=user_id,
+        provider_id=provider_id,
+        model_profile_id=model_profile_id,
+        message_id=None,
+        usage=usage,
+        billing=billing,
+        provider_request_id=None,
+    )
+    await session.commit()
+    return record
+
+
+async def cancel_external_call(
+    session: AsyncSession, *, billing: BillingContext
+) -> None:
+    """Освобождает резервирование, если внешний вызов не состоялся."""
+    await release_reservation(session, billing.reservation_id)
+    await session.commit()

@@ -52,7 +52,13 @@
 - отличай estimated/actual/reconciled;
 - проверь concurrency reservations;
 - платный запрос нельзя скрыто повторять;
-- video fallback после accepted/submitted запрещен без явного решения пользователя.
+- video fallback после accepted/submitted запрещен без явного решения пользователя;
+- все платные вызовы провайдера (chat, embeddings, RAG-synthesis) обязаны
+  проходить через резервирование бюджета и UsageRecord. Находка Итерации 1
+  (см. `docs/IMPROVEMENTS_ASSESSMENT.md`): embeddings в worker ingest и при
+  RAG-запросе, а также RAG-synthesis вызывались напрямую, МИМО billing. Если
+  встретишь прямой `adapter.embed(...)`/`adapter.chat_complete(...)` вне
+  `billing.py`-контура — это дефект.
 
 ## Безопасность
 При подозрении на компрометацию:
@@ -92,3 +98,15 @@ make backup
 
 ## Плановое развитие
 Приоритет: security/cost correctness → backups/migrations → provider compatibility → UX → новые функции. Timeline editor, SaaS, локальный video inference и автономные агенты требуют отдельного продуктового решения.
+
+## Улучшения и OCR/parser-политика
+- Решения о добавлении библиотек (LiteLLM, RapidOCR, MarkItDown, Docling,
+  LlamaIndex) зафиксированы в `docs/IMPROVEMENTS_ASSESSMENT.md`; внедрять можно
+  только в соответствии с итерациями оттуда, под новые ADR.
+- RapidOCR — принятый backend (ADR-0002): ленивый импорт в worker, режим
+  `OCR_BACKEND=tesseract|rapidocr|auto`, fallback на Tesseract, лимиты страниц/
+  размера; Tesseract-путь не удалять. `OCR_BACKEND=tesseract` — полный rollback.
+- Docling/MarkItDown — только optional profiles, базовая установка без них
+  обязана работать без изменений.
+- LlamaIndex — только `experiments/` (ADR-0003), в production runtime не
+  попадает.

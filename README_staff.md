@@ -66,6 +66,31 @@ make doctor
 - Не менять старые usage records при обновлении прайса.
 - Исправление выполняется reconciliation record/audit, а не silent overwrite.
 
+## OCR и распознавание документов
+Общий интерфейс — `OcrBackend` (`packages/core/personal_hub/ocr.py`). Выбор
+backend и лимиты задаются переменными окружения:
+
+| Переменная | Назначение | По умолчанию |
+| --- | --- | --- |
+| `OCR_BACKEND` | `tesseract` \| `rapidocr` \| `auto` (RapidOCR при доступности, иначе Tesseract) | `tesseract` |
+| `OCR_LANGUAGES` | языки tesseract через запятую | `rus,eng` |
+| `OCR_MAX_PAGES` | максимум страниц OCR на документ | `40` |
+| `OCR_MAX_IMAGE_SIDE` | препроцессинг: сторона изображения не более лимита | `3500` |
+| `OCR_PAGE_TIMEOUT_SECONDS` | таймаут распознавания страницы | `30.0` |
+
+Пояснения:
+- RapidOCR (`rapidocr_onnxruntime`) **не входит** в базовые зависимости и ставится
+  отдельно (`pip install rapidocr_onnxruntime`) — lazy import, idle память не
+  растёт. `OCR_BACKEND=tesseract` — полный rollback (ADR-0002).
+- Ошибки OCR не проглатываются: `OcrError` с кодами `OCR_UNAVAILABLE` /
+  `OCR_FAILED` / `OCR_TIMEOUT` виден в статусе документа и job (`make logs
+  SERVICE=worker`).
+- OCR применяется к страницам PDF без текстового слоя и к загруженным
+  изображениям (PNG/JPG/TIFF/WEBP/BMP).
+- Интеграционные OCR-тесты используют детерминированный fake-backend, чтобы не
+  зависеть от системного tesseract; живой путь проверяется вручную через
+  загрузку скан-PDF.
+
 ## Миграции
 ```bash
 make backup

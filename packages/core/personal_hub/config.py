@@ -42,6 +42,17 @@ class Settings(BaseSettings):
     # Векторное хранилище (qdrant | memory).
     vector_store_driver: str = "qdrant"
 
+    # OCR сканов: backend (tesseract|rapidocr|auto), языки, лимиты ресурсов.
+    # В режиме auto предпочтителен RapidOCR c fallback на Tesseract.
+    ocr_backend: str = "tesseract"
+    ocr_languages: str = "rus,eng"
+    # Максимум страниц PDF, распознаваемых за одну задачу индексации.
+    ocr_max_pages: int = 40
+    # Максимальная сторона изображения до OCR (предварительное уменьшение).
+    ocr_max_image_side: int = 3500
+    # Таймаут распознавания одной страницы, секунд.
+    ocr_page_timeout_seconds: float = 30.0
+
     # Логирование и тесты.
     log_level: str = "INFO"
     run_live_tests: bool = False

@@ -1,10 +1,13 @@
 """Эндпоинты баз знаний и RAG-запроса.
 
 Загрузка документа создаёт document_ingest job. Query выполняет retrieval
-с цитатами; при низкой релевантности возвращает sufficient=false.
+с цитатами; при низкой релевантности возвращает sufficient=false. Embedding
+запроса и LLM-синтез ответа проходят через бюджетный контур (резервирование/
+UsageRecord), чтобы платные вызовы не обходили лимиты пользователя.
 """
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -28,6 +31,14 @@ from personal_hub.vectorstore import get_vector_store
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.billing import (
+    cancel_external_call,
+    embedding_units,
+    estimate_units,
+    get_latest_price,
+    reserve_external_call,
+    settle_external_call,
+)
 from app.deps import get_current_user
 from app.job_service import create_job
 from app.schemas import (
@@ -41,6 +52,8 @@ from app.schemas import (
     QueryRequest,
     QueryResult,
 )
+
+logger = logging.getLogger("api.knowledge")
 
 router = APIRouter(prefix="/api/v1/knowledge-bases", tags=["knowledge"])
 
@@ -253,13 +266,40 @@ async def query_knowledge_base(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> QueryResult:
-    """Выполняет retrieval по базе знаний с цитатами."""
+    """Выполняет retrieval по базе знаний с цитатами (embedding оплачивается)."""
     kb = await _owned_kb(session, kb_id, user)
     connection, model = await _embedding_connection(session, kb)
 
+    # Embedding запроса — платный вызов: при наличии цены резервируем бюджет
+    # ДО вызова, фиксируем расход после (смотри billing.py).
+    price = await get_latest_price(session, model.id)
+    billing = None
+    if price is not None:
+        billing = await reserve_external_call(
+            session,
+            user.id,
+            price=price,
+            units=embedding_units(payload.text, "rag_query_embedding"),
+        )
+
     adapter = get_adapter(connection.provider_type)
-    result = await adapter.embed(connection, [payload.text], model.external_model_id)
+    try:
+        result = await adapter.embed(connection, [payload.text], model.external_model_id)
+    except Exception:
+        if billing is not None:
+            await cancel_external_call(session, billing=billing)
+        raise
     query_vector = result.vectors[0]
+
+    if billing is not None:
+        await settle_external_call(
+            session,
+            user_id=user.id,
+            provider_id=model.provider_id,
+            model_profile_id=model.id,
+            billing=billing,
+            usage=None,
+        )
 
     hits = await get_vector_store().search(
         collection_name(kb.id, kb.embedding_version), query_vector, payload.top_k
@@ -297,14 +337,23 @@ async def _synthesize(
     chat_model_profile_id: uuid.UUID,
     question: str,
     citations: list[Citation],
-) -> str:
-    """Синтезирует ответ по найденным фрагментам с цитатами."""
+) -> str | None:
+    """Синтезирует ответ по найденным фрагментам с цитатами (оплачивается).
+
+    Требуется заданная цена модели: если цена неизвестна, синтез не выполняется
+    (answer=None) — платный вызов без контроля бюджета запрещён.
+    """
     chat_model = await session.get(ModelProfile, chat_model_profile_id)
     if chat_model is None:
-        return ""
+        return None
     provider = await session.get(ProviderCredential, chat_model.provider_id)
     if provider is None or provider.user_id != user.id:
-        return ""
+        return None
+
+    price = await get_latest_price(session, chat_model.id)
+    if price is None:
+        logger.info("synthesis_no_price model=%s", chat_model.external_model_id)
+        return None
 
     connection = ProviderConnection(
         provider_type=provider.provider_type,
@@ -330,8 +379,30 @@ async def _synthesize(
         messages=[ChatMessage(role="user", content=user_msg)],
         system=system,
     )
+
+    billing = await reserve_external_call(
+        session,
+        user.id,
+        price=price,
+        units={**estimate_units(user_msg, None), "operation": "rag_synthesis"},
+    )
+
     adapter = get_adapter(provider.provider_type)
-    return await adapter.chat_complete(connection, request)
+    try:
+        answer = await adapter.chat_complete(connection, request)
+    except Exception:
+        await cancel_external_call(session, billing=billing)
+        raise
+
+    await settle_external_call(
+        session,
+        user_id=user.id,
+        provider_id=provider.id,
+        model_profile_id=chat_model.id,
+        billing=billing,
+        usage=None,
+    )
+    return answer
 
 
 async def _chunk_text(session: AsyncSession, vector_id: str) -> str:
