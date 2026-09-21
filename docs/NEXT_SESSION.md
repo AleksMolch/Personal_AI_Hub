@@ -48,7 +48,7 @@ make up             # запуск стека
 make down           # остановка
 make lint typecheck # ruff/mypy + tsc/eslint
 make test-unit      # 80 тестов (docker)
-make test-integration  # 43 теста (изолированный postgres+valkey)
+make test-integration  # 44 теста (изолированный postgres+valkey)
 make test-e2e       # Playwright (нужен запущенный стек + admin/supersecret123)
 make smoke          # smoke поднятого экземпляра
 make backup         # архив в backups/
@@ -121,8 +121,9 @@ make backup         # архив в backups/
      таймаут, downscale, лимит страниц, разбор изображения), 4 integration
      (`test_knowledge_api.py`: синтез без цены пропускается, UsageRecord для
      embed/rag_query_embedding/rag_synthesis, OCR E2E с детерминированным
-     fake-backend «скан→RAG», негативный — OCR-ошибка в статусе документа).
-     Все зелёные: unit 80, integration 43, ruff/mypy чисто.
+     fake-backend «скан→RAG», негативный — OCR-ошибка в статусе документа;
+      + E2E реального пути poppler→tesseract (blank-скан → EMPTY_DOCUMENT).
+     Все зелёные: unit 80, integration 44, ruff/mypy чисто.
 
 8. **Этап 2 «Video»** — НЕ начинать до закрытия пунктов 1–2 (release gate).
    Далее: исследование контрактов Veo/Seedance/Kling/Sora, ADR на каждый адаптер,
@@ -158,14 +159,15 @@ up -d --build.
 docs/IMPROVEMENTS_ASSESSMENT.md и ADR 0002/0003):
 1. Документировать прирост размера образа и RAM при включённом RapidOCR
    (ADR-0002, задача remaining).
-2. E2E-тест с реальным Tesseract (интеграционный образ содержит tesseract-ocr):
-   PDF-скан → реальный OCR → чанки → Qdrant → RAG-запрос — проверить, что
-   русский текст распознаётся, MIN_RELEVANCE=0.30 соблюдается.
-3. Оценить следующего кандидата: MarkItDown или Docling (см.
+2. Оценить следующего кандидата: MarkItDown или Docling (см.
    IMPROVEMENT_TASKS_FOR_CODING_AI.md § «Итерация 3»), создать ADR, начать
    прототип при решении GO.
-4. Прогнать live-тесты (`RUN_LIVE_TESTS=1`) с реальным API-ключом при
+3. Прогнать live-тесты (`RUN_LIVE_TESTS=1`) с реальным API-ключом при
    наличии бюджета (live provider certification, пункт 7).
+
+Уже закрыто в конце Итерации 2 (2026-09-21): E2E с реальными бинарниками
+poppler→tesseract (blank-скан PDF → EMPTY_DOCUMENT в статусе документа,
+иначе были бы сбои связки); счётчик integration 43→44.
 
 Обязательно (AGENTS.md): тест/критерий до кода, unit + integration + негативный
 тест, Decimal для денег, budget блокирует ДО провайдера, estimated не выдавать за

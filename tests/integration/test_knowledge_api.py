@@ -1,8 +1,8 @@
 """Интеграционные тесты RAG: индексация документа, запрос с цитатами.
 
 Покрывают: базовый ingest/query, биллинг эмбеддингов и RAG-синтеза (вызовы не
-уходят мимо UsageRecord), OCR скан-PDF (детерминированный fake-backend) и
-видимую ошибку OCR в статусе документа.
+уходят мимо UsageRecord), OCR скан-PDF (детерминированный fake-backend),
+реальный OCR-путь (poppler→tesseract) и видимую ошибку OCR в статусе документа.
 """
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import io
 import json
 import uuid
 
+import pytest
 import worker.tasks.ingest  # noqa: F401  # регистрирует обработчик document_ingest
 from httpx import AsyncClient
 from personal_hub.db.engine import get_session_factory
@@ -342,6 +343,55 @@ async def test_ocr_failure_marks_document_failed(
     document = detail.json()["documents"][0]
     assert document["status"] == "failed"
     assert document["error_code"] == "OCR_FAILED"
+
+    from personal_hub.db.engine import get_session_factory
+    from personal_hub.models import Job
+
+    factory = get_session_factory()
+    async with factory() as session:
+        job = await session.get(Job, uuid.UUID(job_id))
+        assert job is not None
+        assert job.status == "failed"
+
+
+async def test_real_tesseract_blank_scan_path(
+    client: AsyncClient, mock_provider
+) -> None:
+    """Реальный OCR-путь (pdf2image+poppler→tesseract) работает без сбоев.
+
+    Пустой PDF-«скан» с реальным Tesseract не даёт текста → документ failed с
+    EMPTY_DOCUMENT. Тест доказывает, что реальные бинарники (tesseract,
+    poppler) и pytesseract в составе образа корректно связаны и не требуют
+    mock-backend.
+    """
+    import shutil
+
+    if shutil.which("tesseract") is None or shutil.which("pdftoppm") is None:
+        pytest.skip("tesseract/poppler недоступны (unit-контейнер)")
+
+    headers = await _bootstrap(client)
+    model_id = await _model_id(client, headers, mock_provider)
+    mock_provider.spec["POST /embeddings"] = _embedding_handler
+
+    kb = await client.post(
+        "/api/v1/knowledge-bases",
+        json={"name": "Scans", "embedding_model_profile_id": model_id},
+        headers=headers,
+    )
+    kb_id = kb.json()["id"]
+
+    resp = await client.post(
+        f"/api/v1/knowledge-bases/{kb_id}/documents",
+        headers=headers,
+        files={"file": ("blank.pdf", _blank_pdf(), "application/pdf")},
+    )
+    job_id = resp.json()["job_id"]
+    await execute_job(uuid.UUID(job_id))
+
+    detail = await client.get(f"/api/v1/knowledge-bases/{kb_id}", headers=headers)
+    document = detail.json()["documents"][0]
+    assert document["status"] == "failed"
+    assert document["error_code"] == "EMPTY_DOCUMENT"
 
     from personal_hub.db.engine import get_session_factory
     from personal_hub.models import Job
