@@ -88,6 +88,21 @@ def test_backend_unavailable_raises(monkeypatch) -> None:
     assert exc_info.value.code == "OCR_UNAVAILABLE"
 
 
+def test_rapidocr_import_failure_reports_root_cause(monkeypatch) -> None:
+    """Ошибка импорта RapidOCR должна показывать первопричину (например, libGL)."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "rapidocr_onnxruntime", None)
+    monkeypatch.setattr(RapidOcrBackend, "is_available", lambda self: True)
+    with pytest.raises(OcrError) as exc_info:
+        RapidOcrBackend().recognize(Image.new("RGB", (10, 10), "white"), ["rus"])
+    assert exc_info.value.code == "OCR_UNAVAILABLE"
+    # Причина из исходного исключения попадает в текст: иначе диагностика
+    # упирается в «переустановите пакет» даже при нехватке libGL.so.1.
+    assert "halted" in exc_info.value.message
+    assert "libgl1" in exc_info.value.message
+
+
 def test_unknown_backend_raises_value_error(monkeypatch) -> None:
     monkeypatch.setattr(_settings(), "ocr_backend", "magic")
     with pytest.raises(ValueError):

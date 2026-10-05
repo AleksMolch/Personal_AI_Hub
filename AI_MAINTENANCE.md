@@ -106,6 +106,8 @@ make backup
 - RapidOCR — принятый backend (ADR-0002): ленивый импорт в worker, режим
   `OCR_BACKEND=tesseract|rapidocr|auto`, fallback на Tesseract, лимиты страниц/
   размера; Tesseract-путь не удалять. `OCR_BACKEND=tesseract` — полный rollback.
+  Установка только с `opencv-python-headless` (без `libgl1`): прирост образа
+  +329 МБ против +665 МБ с mesa, порядок pip — в `README_staff.md`.
 - Docling/MarkItDown — только optional profiles, базовая установка без них
   обязана работать без изменений.
 - LlamaIndex — только `experiments/` (ADR-0003), в production runtime не

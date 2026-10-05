@@ -40,6 +40,12 @@
 (Apache-2.0) + onnxruntime (MIT, функционально включён в пакет RapidOCR).
 Устанавливается отдельно при включении `OCR_BACKEND=rapidocr` (см. README_staff).
 
+Транзитивные зависимости RapidOCR при headless-установке (см. README_staff):
+opencv-python-headless (Apache-2.0), pyclipper (MIT), Shapely (BSD-3-Clause),
+tqdm (MPL-2.0 + MIT). `opencv-python` (Apache-2.0) не используется: вместе с
+ним требуется системный пакет `libgl1` (mesa, лицензия MIT), что увеличивает
+образ примерно на 336 МБ.
+
 Dev-инструменты: pytest (MIT), pytest-asyncio (Apache-2.0), ruff (MIT),
 mypy (MIT).
 

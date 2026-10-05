@@ -80,11 +80,26 @@ backend и лимиты задаются переменными окружени
 
 Пояснения:
 - RapidOCR (`rapidocr_onnxruntime`) **не входит** в базовые зависимости и ставится
-  отдельно (`pip install rapidocr_onnxruntime`) — lazy import, idle память не
-  растёт. `OCR_BACKEND=tesseract` — полный rollback (ADR-0002).
+  отдельно — lazy import, idle память не растёт. `OCR_BACKEND=tesseract` —
+  полный rollback (ADR-0002).
+- **Установка RapidOCR требует headless-OpenCV.** Пакет `rapidocr_onnxruntime`
+  тянет `opencv-python`, которому нужен `libGL.so.1`; в `python:3.12-slim`
+  его нет, и backend падает на импорте. Рабочий вариант (в порядке установки):
+  ```bash
+  pip install opencv-python-headless==4.11.0.86
+  pip install --no-deps rapidocr_onnxruntime==1.4.4
+  pip install onnxruntime==1.30.0 pyclipper==1.3.0.post6 Shapely==2.1.1 tqdm==4.67.1
+  ```
+  Если добавить `libgl1` в образ вместо headless-варианта, прирост образа
+  вырастет примерно с +329 МБ до +665 МБ.
+- Измеренные характеристики RapidOCR (A4 300 dpi, синтетическая страница):
+  ~1,3–2,6 с на страницу и пик RAM ~0,8 ГБ против ~1,0 с и ~0,19 ГБ у
+  Tesseract; качество распознавания этими числами не измеряется. Включать
+  RapidOCR стоит точечно под сложные сканы, а не как замену Tesseract.
 - Ошибки OCR не проглатываются: `OcrError` с кодами `OCR_UNAVAILABLE` /
   `OCR_FAILED` / `OCR_TIMEOUT` виден в статусе документа и job (`make logs
-  SERVICE=worker`).
+  SERVICE=worker`). В тексте ошибки `OCR_UNAVAILABLE` есть первопричина
+  импорта (например, отсутствие `libGL.so.1`).
 - OCR применяется к страницам PDF без текстового слоя и к загруженным
   изображениям (PNG/JPG/TIFF/WEBP/BMP).
 - Интеграционные OCR-тесты используют детерминированный fake-backend, чтобы не

@@ -117,13 +117,29 @@ make backup         # архив в backups/
      (`parsing.py`): raise `OcrError`, в worker ловятся → документ
      `status=failed, error_code=OCR_*`. Поддержаны изображения
      (PNG/JPG/TIFF/WEBP/BMP) как документы; UI accept обновлён.
-   - Тесты: 11 unit (`tests/unit/test_ocr.py`: выбор backend, auto/fallback,
-     таймаут, downscale, лимит страниц, разбор изображения), 4 integration
+   - Тесты: 12 unit (`tests/unit/test_ocr.py`: выбор backend, auto/fallback,
+     таймаут, downscale, лимит страниц, разбор изображения, первопричина
+     ошибки импорта RapidOCR), 4 integration
      (`test_knowledge_api.py`: синтез без цены пропускается, UsageRecord для
      embed/rag_query_embedding/rag_synthesis, OCR E2E с детерминированным
      fake-backend «скан→RAG», негативный — OCR-ошибка в статусе документа;
       + E2E реального пути poppler→tesseract (blank-скан → EMPTY_DOCUMENT).
-     Все зелёные: unit 80, integration 44, ruff/mypy чисто.
+     Все зелёные: unit 81, integration 44, ruff/mypy чисто.
+
+7a. **Ресурсные измерения RapidOCR (2026-10-05) и полный smoke — закрыты.**
+    - Измерено на одноразовых probe-образах (в compose не входят):
+      базовый образ 780,2 МБ; минимальный вариант установки
+      (`opencv-python-headless` + `rapidocr_onnxruntime --no-deps` +
+      `onnxruntime`) — +329,3 МБ; вариант с `libgl1` — +665,3 МБ.
+    - A4 300 dpi: Tesseract ~1,0 с/страница и пик ~0,19 ГБ, RapidOCR
+      1,3–2,6 с/страница и пик ~0,82 ГБ; idle RAM не растёт (lazy import).
+    - Найдено: `rapidocr_onnxruntime` требует `libGL.so.1` (opencv-python).
+      Текст ошибки `OCR_UNAVAILABLE` теперь содержит первопричину, в
+      README_staff — порядок установки headless-варианта.
+    - Полный `make smoke` на Windows (PowerShell-эквивалент) зелёный:
+      `/health/ready`, `/version`, `alembic current` = 0007 (head),
+      `celery inspect ping` = pong.
+    - Оценка «+20–40 МБ» из ADR-0002 не подтвердилась и исправлена.
 
 8. **Этап 2 «Video»** — НЕ начинать до закрытия пунктов 1–2 (release gate).
    Далее: исследование контрактов Veo/Seedance/Kling/Sora, ADR на каждый адаптер,
@@ -150,24 +166,31 @@ OCR, чанкинг, embeddings, Qdrant, query с цитатами + LLM-син�
 (CSV/XLSX + DuckDB read-only sandbox), релиз (README/LICENSE/notices, backup/
 restore, E2E Playwright).
 
-Текущие проверки зелёные: make test-unit (80), make test-integration (43),
+Текущие проверки зелёные: make test-unit (81), make test-integration (44),
 ruff/mypy/tsc/eslint/prettier, make test-e2e (нужен Node 20+). Стек:
 api/worker/beat/web + postgres/valkey/qdrant, запускается docker compose
 up -d --build.
 
-Твоя задача — Итерация 3 улучшений (см. IMPROVEMENT_TASKS_FOR_CODING_AI.md,
+Твоя задача — продолжение Итерации 3 улучшений (см. IMPROVEMENT_TASKS_FOR_CODING_AI.md,
 docs/IMPROVEMENTS_ASSESSMENT.md и ADR 0002/0003):
-1. Документировать прирост размера образа и RAM при включённом RapidOCR
-   (ADR-0002, задача remaining).
-2. Оценить следующего кандидата: MarkItDown или Docling (см.
-   IMPROVEMENT_TASKS_FOR_CODING_AI.md § «Итерация 3»), создать ADR, начать
-   прототип при решении GO.
+1. Добавить стабильный fixture-скан с читаемым текстом и расширить реальный
+   OCR E2E: проверять не только путь poppler→tesseract, но и распознанный
+   текст, попавший в чанки/RAG.
+2. Подготовить ADR для ОПЦИОНАЛЬНОГО LiteLLM-профиля (Iteration 3 в
+   IMPROVEMENT_TASKS_FOR_CODING_AI.md): LiteLLM в assessment имеет статус
+   DEFER, поэтому сначала ADR с измерением прироста образа/RAM и планом
+   отката, без удаления текущего openai_compatible-адаптера.
 3. Прогнать live-тесты (`RUN_LIVE_TESTS=1`) с реальным API-ключом при
    наличии бюджета (live provider certification, пункт 7).
+4. Только после этого — оценка MarkItDown/Docling (DEFER) и LlamaIndex
+   (PROTOTYPE ONLY).
 
 Уже закрыто в конце Итерации 2 (2026-09-21): E2E с реальными бинарниками
 poppler→tesseract (blank-скан PDF → EMPTY_DOCUMENT в статусе документа,
 иначе были бы сбои связки); счётчик integration 43→44.
+Закрыто 2026-10-05: ресурсные измерения RapidOCR (+329,3 МБ при headless-установке,
+libgl1 не нужен; документировано в ADR-0002 и README_staff) и полный smoke
+(ready/version/alembic 0007 head/worker pong).
 
 Обязательно (AGENTS.md): тест/критерий до кода, unit + integration + негативный
 тест, Decimal для денег, budget блокирует ДО провайдера, estimated не выдавать за

@@ -79,6 +79,8 @@
       (OCR_UNAVAILABLE/OCR_FAILED/OCR_TIMEOUT), видимы в статусе документа
 - [x] Выбор OCR-backend: `OCR_BACKEND=tesseract|rapidocr|auto` (+fallback на Tesseract),
       лимиты `OCR_MAX_PAGES`/`OCR_MAX_IMAGE_SIDE`, per-page таймаут (ADR-0002)
+- [x] Ресурсы RapidOCR измерены: +329,3 МБ к образу (headless-OpenCV, без libgl1),
+      ~1,3–2,6 с и пик ~0,82 ГБ на страницу A4 300 dpi, idle RAM не растёт
 - [x] Чанкинг с overlap и локацией (страница/позиция) + checksum
 - [x] Embedding-адаптер (OpenAI-compatible POST /embeddings)
 - [x] VectorStore: Qdrant + InMemory; коллекция на версию эмбеддинг-модели

@@ -122,6 +122,8 @@ class RapidOcrBackend:
 
                 self._checked = True
             except ImportError:
+                # Пакет может быть установлен, но без системных библиотек
+                # OpenCV (libGL.so.1) — такой backend считаем недоступным.
                 self._checked = False
         return self._checked
 
@@ -130,10 +132,14 @@ class RapidOcrBackend:
             import numpy as np
             from rapidocr_onnxruntime import RapidOCR
         except ImportError as exc:
+            # Первопричина в тексте: часто пакет установлен, но не хватает
+            # системных библиотек OpenCV (libGL.so.1/libglib2.0-0) — без
+            # детали диагностика упирается в «переустановите пакет».
             raise OcrError(
                 "OCR_UNAVAILABLE",
-                "RapidOCR не установлен. Установите rapidocr_onnxruntime "
-                "в worker-образ или переключите OCR_BACKEND=tesseract.",
+                f"RapidOCR недоступен ({exc}). Установите rapidocr_onnxruntime "
+                "и системные пакеты libgl1 + libglib2.0-0 в worker-образ "
+                "или переключите OCR_BACKEND=tesseract.",
             ) from exc
 
         try:
