@@ -142,6 +142,22 @@ make backup         # архив в backups/
       `celery inspect ping` = pong.
     - Оценка «+20–40 МБ» из ADR-0002 не подтвердилась и исправлена.
 
+7b. **Итерация 3: LiteLLM как внешний proxy (ADR-0004) — закрыто.**
+    - Измерения: библиотека `litellm==1.104.0` в backend стоила бы +355,3 МБ к
+      образу и +178,5 МБ RSS при импорте (5,31 с) в каждом процессе —
+      отклонено. Вариант A (внешний proxy `ghcr.io/berriai/litellm:v1.104.0`,
+      +383,1 МБ сжатых слоёв) качается только с `--profile litellm`.
+    - Реализация: сервис `litellm` в `compose.yaml` (профиль `litellm`, порт
+      только на 127.0.0.1), шаблон `infra/litellm/config.yaml` без секретов,
+      `make up-litellm` / `make down-litellm`, пресет `litellm_proxy`
+      (`http://litellm:4000/v1`) на том же OpenAI-compatible адаптере.
+    - Проверено вживую: proxy healthy, `/health/liveliness` → 200,
+      `/v1/models` → `litellm-default`; `docker compose config` без профиля
+      сервис не показывает.
+    - Тесты: unit на пресет/реестр (+ проверка, что `litellm` не установлен в
+      backend) и 2 integration — сквозной контур и стабильность кодов
+      401/429/5xx. Integration 45→47.
+
 8. **Этап 2 «Video»** — НЕ начинать до закрытия пунктов 1–2 (release gate).
    Далее: исследование контрактов Veo/Seedance/Kling/Sora, ADR на каждый адаптер,
    sanitized fixtures, async-generation adapters, webhook/polling, галерея, FFmpeg.
@@ -167,21 +183,19 @@ OCR, чанкинг, embeddings, Qdrant, query с цитатами + LLM-син�
 (CSV/XLSX + DuckDB read-only sandbox), релиз (README/LICENSE/notices, backup/
 restore, E2E Playwright).
 
-Текущие проверки зелёные: make test-unit (81), make test-integration (45),
+Текущие проверки зелёные: make test-unit (83), make test-integration (47),
 ruff/mypy/tsc/eslint/prettier, make test-e2e (нужен Node 20+). Стек:
 api/worker/beat/web + postgres/valkey/qdrant, запускается docker compose
-up -d --build.
+up -d --build. Опционально: make up-litellm (профиль `litellm`, ADR-0004).
 
-Твоя задача — продолжение Итерации 3 улучшений (см. IMPROVEMENT_TASKS_FOR_CODING_AI.md,
-docs/IMPROVEMENTS_ASSESSMENT.md и ADR 0002/0003):
-1. Подготовить ADR для ОПЦИОНАЛЬНОГО LiteLLM-профиля (Iteration 3 в
-   IMPROVEMENT_TASKS_FOR_CODING_AI.md): LiteLLM в assessment имеет статус
-   DEFER, поэтому сначала ADR с измерением прироста образа/RAM и планом
-   отката, без удаления текущего openai_compatible-адаптера.
-2. Прогнать live-тесты (`RUN_LIVE_TESTS=1`) с реальным API-ключом при
-   наличии бюджета (live provider certification, пункт 7).
-3. Только после этого — оценка MarkItDown/Docling (DEFER) и LlamaIndex
-   (PROTOTYPE ONLY).
+Твоя задача — закрытие release gate перед Этапом 2:
+1. Live-тесты (`RUN_LIVE_TESTS=1`) с реальным API-ключом и согласованным
+   бюджетом: live provider certification (пункт 7) — единственный пункт,
+   который нельзя закрыть без ключа пользователя.
+2. Обновить IMPROVEMENT_TASKS_FOR_CODING_AI.md: отметить закрытые Итерации
+   1–3 (счётчики 83/47), чтобы следующая сессия не переделывала их.
+3. Только после этого — Итерация 4 (Docling, DEFER) и Итерация 5 (LlamaIndex,
+   PROTOTYPE ONLY) по одной за раз.
 
 Уже закрыто в конце Итерации 2 (2026-09-21): E2E с реальными бинарниками
 poppler→tesseract (blank-скан PDF → EMPTY_DOCUMENT в статусе документа,
@@ -191,7 +205,8 @@ poppler→tesseract (blank-скан PDF → EMPTY_DOCUMENT в статусе д�
   нужен; документировано в ADR-0002 и README_staff);
 - полный smoke (ready/version/alembic 0007 head/worker pong);
 - реальный OCR-тест на читаемой странице: фикстура PDF-из-картинки,
-  «VECTORSEARCH» доезжает до чанков (integration 44→45).
+  «VECTORSEARCH» доезжает до чанков (integration 44→45);
+- Итерация 3: LiteLLM как внешний proxy (ADR-0004), integration 45→47.
 
 Обязательно (AGENTS.md): тест/критерий до кода, unit + integration + негативный
 тест, Decimal для денег, budget блокирует ДО провайдера, estimated не выдавать за

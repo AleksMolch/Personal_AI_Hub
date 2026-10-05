@@ -1,9 +1,9 @@
 """Реестр адаптеров провайдеров.
 
-Сопоставляет provider_type адаптеру. OpenRouter, RouterAI, Selectel и
-универсальный OpenAI-compatible используют один адаптер; presets задают
-base URL по умолчанию. Добавление video-адаптера на Этапе 2 не меняет
-существующие записи.
+Сопоставляет provider_type адаптеру. OpenRouter, RouterAI, Selectel,
+универсальный OpenAI-compatible и опциональный LiteLLM Proxy используют
+OpenAI-compatible адаптер; presets задают base URL по умолчанию. Добавление
+video-адаптера на Этапе 2 не меняет существующие записи.
 """
 from __future__ import annotations
 
@@ -12,12 +12,15 @@ from personal_hub.providers.openai_compatible import OpenAICompatibleAdapter
 _openai_compatible = OpenAICompatibleAdapter()
 
 # Все текущие провайдеры — OpenAI-compatible адаптер (чат + эмбеддинги).
-# На Этапе 2 реестр расширится async-generation адаптерами.
+# На Этап 2 реестр расширится async-generation адаптерами.
 PROVIDER_ADAPTERS: dict[str, OpenAICompatibleAdapter] = {
     "openai_compatible": _openai_compatible,
     "openrouter": _openai_compatible,
     "routerai": _openai_compatible,
     "selectel": _openai_compatible,
+    # ADR-0004: LiteLLM подключается как внешний OpenAI-совместимый proxy,
+    # поэтому отдельный адаптер и библиотека litellm не нужны.
+    "litellm_proxy": _openai_compatible,
 }
 
 # Типы, которые поддерживаются реестром.

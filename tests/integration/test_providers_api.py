@@ -1,7 +1,8 @@
 """Интеграционные тесты CRUD провайдеров и синхронизации моделей.
 
 Проверяют, что ключ не возвращается API, шифруется и что проверка соединения
-работает против mock HTTP-сервера.
+работает против mock HTTP-сервера. Отдельно покрыт тип `litellm_proxy`
+(ADR-0004) — опциональный внешний proxy через тот же OpenAI-совместимый адаптер.
 """
 from __future__ import annotations
 
@@ -208,3 +209,77 @@ async def test_sync_models_does_not_override_manual_price(
     ).json()
     assert len(prices) == 2
     assert {p["source"] for p in prices} == {"api", "manual"}
+
+
+async def test_litellm_proxy_provider_uses_openai_compatible_flow(
+    client: AsyncClient, mock_provider
+) -> None:
+    """Тип litellm_proxy проходит обычный OpenAI-совместимый контур (ADR-0004).
+
+    Mock-сервер здесь играет роль локального LiteLLM proxy: отдельный адаптер и
+    библиотека litellm не используются, бюджет и цены остаются в Personal AI Hub.
+    """
+    headers = await _auth(client)
+    host, port = mock_provider.server_address
+
+    presets = (await client.get("/api/v1/providers/presets", headers=headers)).json()
+    litellm_preset = next(p for p in presets if p["provider_type"] == "litellm_proxy")
+    assert litellm_preset["base_url"] == "http://litellm:4000/v1"
+
+    mock_provider.spec["/models"] = (
+        200,
+        '{"data": [{"id": "litellm-default", "name": "LiteLLM Default"}]}',
+    )
+    created = await _create_provider(
+        client,
+        headers,
+        provider_type="litellm_proxy",
+        display_name="LiteLLM Proxy",
+        base_url=f"http://{host}:{port}",
+    )
+    resp = await client.post(
+        f"/api/v1/providers/{created['id']}/sync-models", headers=headers
+    )
+    assert resp.status_code == 200
+    assert resp.json()[0]["external_model_id"] == "litellm-default"
+
+    # Каталог моделей и цены ведёт сам Personal AI Hub.
+    model_id = resp.json()[0]["id"]
+    catalog = (await client.get("/api/v1/models", headers=headers)).json()
+    assert [m["id"] for m in catalog] == [model_id]
+
+
+async def test_litellm_proxy_error_codes_stay_stable(
+    client: AsyncClient, mock_provider
+) -> None:
+    """Ошибки proxy не меняют нормализацию кодов и retryability (ADR-0004).
+
+    Прокси — обычный OpenAI-совместимый endpoint: 401 остаётся
+    PROVIDER_UNAUTHORIZED, 429 — PROVIDER_RATE_LIMITED с retryable=True,
+    5xx — PROVIDER_ERROR. Иначе появятся новые коды и потеряется retry.
+    """
+    headers = await _auth(client)
+    host, port = mock_provider.server_address
+    created = await _create_provider(
+        client,
+        headers,
+        provider_type="litellm_proxy",
+        display_name="LiteLLM Proxy",
+        base_url=f"http://{host}:{port}",
+    )
+    provider_id = created["id"]
+
+    for status, expected_ok in ((401, False), (429, False), (503, False)):
+        mock_provider.spec["/models"] = (status, '{"error": "upstream"}')
+        resp = await client.post(f"/api/v1/providers/{provider_id}/test", headers=headers)
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is expected_ok
+
+    # Стабильные коды для HTTP-статусов не зависят от типа провайдера.
+    from personal_hub.providers.errors import normalize_http_status
+
+    assert normalize_http_status(401).code == "PROVIDER_UNAUTHORIZED"
+    assert normalize_http_status(429).code == "PROVIDER_RATE_LIMITED"
+    assert normalize_http_status(429).retryable is True
+    assert normalize_http_status(503).code == "PROVIDER_ERROR"
+    assert normalize_http_status(503).retryable is True

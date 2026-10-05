@@ -1,0 +1,36 @@
+# Конфигурация опционального LiteLLM proxy (ADR-0004, Итерация 3).
+#
+# Назначение: шаблон для локального шлюза к моделям. Personal AI Hub вызывает
+# этот прокси как обычный OpenAI-совместимый провайдер (`provider_type=
+# litellm_proxy`, base_url http://litellm:4000/v1), поэтому бюджет, цены и
+# UsageRecord считает сам backend.
+#
+# Файл НЕ содержит секретов и по умолчанию не запускается: сервис включается
+# только через compose-профиль `litellm`.
+#
+# Перед включением заполните .env:
+#   LITELLM_MASTER_KEY=случайная_строка_для_прокси
+#   LITELLM_UPSTREAM_API_KEY=ключ_провайдера
+#   LITELLM_UPSTREAM_API_BASE=https://api.openrouter.ai/api/v1
+#   LITELLM_UPSTREAM_MODEL=openai/<model>   # например openai/gpt-4o-mini
+#
+# ВАЖНО: цены и бюджеты берёт Personal AI Hub, не прокси. Если прокси
+# подменяет модель, фактическая модель попадёт в UsageRecord, но тарификация
+# останется по профилю модели, заданному в кабинете — проверяйте это перед
+# использованием.
+model_list:
+  - model_name: litellm-default
+    litellm_params:
+      model: os.environ/LITELLM_UPSTREAM_MODEL
+      api_base: os.environ/LITELLM_UPSTREAM_API_BASE
+      api_key: os.environ/LITELLM_UPSTREAM_API_KEY
+
+litellm_settings:
+  # Единый бюджет и маскирование ключей — задачи Personal AI Hub, здесь
+  # оставляем только локальное логирование без содержимого промптов.
+  drop_params: true
+  set_verbose: false
+
+general_settings:
+  # Не отдавать наружу без ключа локальный шлюз.
+  master_key: os.environ/LITELLM_MASTER_KEY

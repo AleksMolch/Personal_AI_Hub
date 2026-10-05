@@ -28,6 +28,8 @@
 - [x] Синхронизация моделей (`POST /providers/{id}/sync-models`, upsert)
 - [x] Каталог моделей (`GET /models?capability=`)
 - [x] Нормализация ошибок провайдеров (401/402/403/404/429/5xx) и стабильный формат ошибки
+- [x] Опциональный LiteLLM proxy: тип `litellm_proxy` на том же адаптере,
+      compose-профиль `litellm`, `make up-litellm` (ADR-0004, выключен по умолчанию)
 - [x] UI: страница входа и управление провайдерами
 
 ### 3. Модели и streaming chat — ✅
@@ -119,6 +121,9 @@
 - [x] Windows clean install (проверен 2026-09-16, Windows + Docker Desktop 29.8,
       Windows PowerShell smoke-эквивалент зелёный; CRLF-prettier-regression
       исправлен общим `.gitattributes` `* text=auto eol=lf`)
+- [x] LiteLLM proxy (опционально, ADR-0004): живой прогон профиля `litellm`
+      — контейнер healthy, `/health/liveliness` → 200, `/v1/models` →
+      `litellm-default`
 - [ ] Live provider certification (RUN_LIVE_TESTS=1, отдельный бюджет)
 
 ## Определение готовности Этапа 1

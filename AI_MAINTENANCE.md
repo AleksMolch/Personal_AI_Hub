@@ -81,6 +81,9 @@ make backup
 
 Пояснение блока: первые три команды проверяют код; `up/smoke` проверяют реальную сборку; backup делается до обновления рабочего экземпляра. Не меняй порядок для миграций без обоснования.
 
+Опционально: `make up-litellm` / `make down-litellm` (ADR-0004). Эти команды
+трогают только compose-профиль `litellm`; обычный `make up` их не вызывает.
+
 ## Формат ответа пользователю
 - Диагноз и уровень уверенности.
 - Что изменено и почему.
@@ -108,6 +111,10 @@ make backup
   размера; Tesseract-путь не удалять. `OCR_BACKEND=tesseract` — полный rollback.
   Установка только с `opencv-python-headless` (без `libgl1`): прирост образа
   +329 МБ против +665 МБ с mesa, порядок pip — в `README_staff.md`.
+- LiteLLM — только внешний proxy (ADR-0004), compose-профиль `litellm`
+  (`make up-litellm`). Библиотеку `litellm` в backend не ставить: измерено
+  +355 МБ образа и +178 МБ RSS на импорт. Точки интеграции — сервис
+  `litellm` в `compose.yaml` и пресет `litellm_proxy`.
 - Docling/MarkItDown — только optional profiles, базовая установка без них
   обязана работать без изменений.
 - LlamaIndex — только `experiments/` (ADR-0003), в production runtime не

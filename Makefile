@@ -5,7 +5,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 PYTHON := python3
 
-.PHONY: help bootstrap up down status logs lint typecheck test test-unit test-integration test-e2e smoke backup restore migrate-check migrate health doctor
+.PHONY: help bootstrap up down status logs lint typecheck test test-unit test-integration test-e2e smoke backup restore migrate-check migrate health doctor up-litellm down-litellm
 
 help: ## Список команд
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -35,6 +35,16 @@ health: ## Проверка health endpoints
 
 doctor: ## Диагностика без вывода секретов
 	@infra/scripts/doctor.sh
+
+## ---- Опциональные профили --------------------------------------------------
+
+up-litellm: ## Запуск опционального LiteLLM proxy (ADR-0004)
+	@test -f .env || { echo "Сначала выполните: make bootstrap"; exit 1; }
+	$(COMPOSE) --profile litellm up -d litellm
+	@echo "LiteLLM proxy: http://127.0.0.1:$${LITELLM_PORT:-4000}/v1 (provider_type=litellm_proxy)"
+
+down-litellm: ## Остановка опционального LiteLLM proxy
+	$(COMPOSE) --profile litellm down litellm
 
 ## ---- Качество кода ---------------------------------------------------------
 

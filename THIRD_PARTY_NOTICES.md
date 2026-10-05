@@ -71,6 +71,10 @@ mypy (MIT).
 | python | 3.12-slim | PSF License |
 | node | 22-alpine | MIT |
 
+Опциональный сервис (compose-профиль `litellm`, ADR-0004): LiteLLM
+(ghcr.io/berriai/litellm:v1.104.0, MIT). По умолчанию не запускается и не
+скачивается; в backend-образе библиотека `litellm` отсутствует.
+
 Системные пакеты OCR (в backend-образе): tesseract-ocr (Apache-2.0),
 poppler-utils (GPL-2.0+).
 

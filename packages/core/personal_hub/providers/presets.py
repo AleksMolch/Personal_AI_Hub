@@ -44,6 +44,15 @@ PRESETS: dict[str, ProviderPreset] = {
         base_url="",
         currency="USD",
     ),
+    # Optional: локальный LiteLLM proxy из compose-профиля `litellm`
+    # (ADR-0004). Тот же OpenAI-совместимый адаптер и тот же billing —
+    # отдельная библиотека в backend не ставится.
+    "litellm_proxy": ProviderPreset(
+        provider_type="litellm_proxy",
+        label="LiteLLM Proxy (опционально)",
+        base_url="http://litellm:4000/v1",
+        currency="USD",
+    ),
 }
 
 

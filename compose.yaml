@@ -144,6 +144,34 @@ services:
       retries: 12
       start_period: 30s
 
+# Опциональный LiteLLM proxy (ADR-0004). По умолчанию НЕ запускается:
+  # включается только профилем `docker compose --profile litellm up -d litellm`.
+  # Personal AI Hub обращается к нему как к обычному OpenAI-совместимому
+  # провайдеру (`provider_type=litellm_proxy`), поэтому в backend не ставится
+  # ни библиотека litellm, ни её зависимости.
+  litellm:
+    image: ghcr.io/berriai/litellm:v1.104.0
+    profiles: ["litellm"]
+    restart: unless-stopped
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      # Без ключа proxy не стартует: это ожидаемо и не влияет на основной стек.
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      LITELLM_UPSTREAM_API_KEY: ${LITELLM_UPSTREAM_API_KEY:-}
+      LITELLM_UPSTREAM_API_BASE: ${LITELLM_UPSTREAM_API_BASE:-}
+      LITELLM_UPSTREAM_MODEL: ${LITELLM_UPSTREAM_MODEL:-}
+    volumes:
+      - ./infra/litellm/config.yaml:/app/config.yaml:ro
+    ports:
+      # Слушаем только localhost: внешний доступ к прокси не выставляем.
+      - "127.0.0.1:${LITELLM_PORT:-4000}:4000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=3).status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
 volumes:
   pgdata:
   valkeydata:
