@@ -2,7 +2,8 @@
 
 Покрывают: базовый ingest/query, биллинг эмбеддингов и RAG-синтеза (вызовы не
 уходят мимо UsageRecord), OCR скан-PDF (детерминированный fake-backend),
-реальный OCR-путь (poppler→tesseract) и видимую ошибку OCR в статусе документа.
+реальный OCR-путь (poppler→tesseract) на пустой и на читаемой странице и
+видимую ошибку OCR в статусе документа.
 """
 from __future__ import annotations
 
@@ -91,6 +92,36 @@ def _blank_pdf() -> bytes:
     writer.add_blank_page(width=595, height=842)
     writer.write(buf)
     return buf.getvalue()
+
+
+def _scanned_pdf(lines: list[str], font_size: int = 48) -> bytes:
+    """PDF-«скан» с текстом: страница-картинка БЕЗ текстового слоя.
+
+    Именно такой формат запускает OCR-путь: с текстовым слоем Tesseract не
+    вызывается. Шрифт встроенный в Pillow, поэтому фикстура не требует
+    системных файлов шрифтов в образе.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    image = Image.new("RGB", (1240, 1754), "white")
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.load_default(size=font_size)
+    y = 300
+    for line in lines:
+        draw.text((150, y), line, fill="black", font=font)
+        y += int(font_size * 2.2)
+    buf = io.BytesIO()
+    image.save(buf, format="PDF", resolution=150.0)
+    return buf.getvalue()
+
+
+def _normalized_ocr(text: str) -> str:
+    """OCR-текст без пробелов/пунктуации и в верхнем регистре.
+
+    Нужно для устойчивых проверок: Tesseract путает I/l и часто вставляет
+    переводы строк, поэтому сравнивать «как есть» нельзя.
+    """
+    return "".join(ch for ch in text.upper() if ch.isalnum())
 
 
 class _DeterministicOcr:
@@ -401,3 +432,56 @@ async def test_real_tesseract_blank_scan_path(
         job = await session.get(Job, uuid.UUID(job_id))
         assert job is not None
         assert job.status == "failed"
+
+
+async def test_real_tesseract_extracts_text_from_scan(
+    client: AsyncClient, mock_provider
+) -> None:
+    """Реальный OCR читает текст скана, и текст попадает в индекс.
+
+    Закрывает прошлый пробел: тест пути проверял только связку бинарников на
+    пустой странице (EMPTY_DOCUMENT), но не качество распознавания. Теперь
+    фикстура — PDF из картинки с читаемым текстом без текстового слоя, и путь
+    poppler → Tesseract → чанки проверяется по содержимому индекса.
+    """
+    import shutil
+
+    if shutil.which("tesseract") is None or shutil.which("pdftoppm") is None:
+        pytest.skip("tesseract/poppler недоступны (unit-контейнер)")
+
+    headers = await _bootstrap(client)
+    model_id = await _model_id(client, headers, mock_provider)
+    mock_provider.spec["POST /embeddings"] = _embedding_handler
+
+    kb = await client.post(
+        "/api/v1/knowledge-bases",
+        json={"name": "Scans", "embedding_model_profile_id": model_id},
+        headers=headers,
+    )
+    kb_id = kb.json()["id"]
+
+    resp = await client.post(
+        f"/api/v1/knowledge-bases/{kb_id}/documents",
+        headers=headers,
+        files={
+            "file": (
+                "scan.pdf",
+                _scanned_pdf(["VECTORSEARCH", "PERSONAL AI HUB", "STAGE ONE 2026"]),
+                "application/pdf",
+            )
+        },
+    )
+    job_id = resp.json()["job_id"]
+    await execute_job(uuid.UUID(job_id))
+
+    detail = await client.get(f"/api/v1/knowledge-bases/{kb_id}", headers=headers)
+    document = detail.json()["documents"][0]
+    assert document["status"] == "ready"
+
+    from personal_hub.models import Chunk
+
+    factory = get_session_factory()
+    async with factory() as session:
+        chunks = (await session.execute(select(Chunk))).scalars().all()
+    # VECTORSEARCH выбран как различимый токен (без неоднозначных I/l в «AI»).
+    assert any("VECTORSEARCH" in _normalized_ocr(chunk.content) for chunk in chunks)
