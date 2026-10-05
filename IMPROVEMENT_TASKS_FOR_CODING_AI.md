@@ -700,6 +700,21 @@ Live-тесты нельзя запускать без явного соглас
 
 # 9. Рекомендуемый порядок выполнения
 
+## Статус итераций (актуально на 2026-10-05)
+
+| Итерация | Решение | Где зафиксировано |
+| --- | --- | --- |
+| 1 — assessment only | ✅ закрыто | `docs/IMPROVEMENTS_ASSESSMENT.md` |
+| 2 — RapidOCR (+ закрытие находок 0.7: billing gap, ошибки OCR, OCR-фикстуры) | ✅ закрыто | ADR-0002, `docs/NEXT_SESSION.md` п. 7 |
+| 3 — LiteLLM prototype | ✅ закрыто (вариант A, внешний proxy) | ADR-0004, `docs/NEXT_SESSION.md` п. 7b |
+| 4 — Docling enhanced parser | ⏸ DEFER, по одной задаче за раз | `docs/IMPROVEMENTS_ASSESSMENT.md` |
+| 5 — LlamaIndex benchmark | ⏸ PROTOTYPE ONLY, `experiments/` | ADR-0003 |
+
+Зелёные проверки после Итерации 3: unit 83, integration 47, ruff, mypy
+(66 файлов), tsc/eslint/prettier, `make smoke` (ready/version/alembic 0007
+head/worker pong). Live provider certification (`RUN_LIVE_TESTS=1`) — единственный
+пункт, который нельзя закрыть без реального ключа и бюджета пользователя.
+
 ## Итерация 1 — assessment only
 - Выполнить задачи 0.1–0.3.
 - Ничего не менять в production-коде.
@@ -712,6 +727,10 @@ Live-тесты нельзя запускать без явного соглас
 
 ## Итерация 3 — LiteLLM prototype
 Только optional profile/proxy. Без удаления текущего adapter.
+
+Факт: выбран вариант A. Ключевой вывод замеров — библиотеку `litellm` в backend
+ставить нельзя (+355,3 МБ образ, +178,5 МБ RSS на импорт). Proxy вынесен в
+отдельный сервис под compose-профилем `litellm`.
 
 ## Итерация 4 — Docling enhanced parser
 Только optional profile для сложных PDF.
