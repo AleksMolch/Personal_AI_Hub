@@ -35,6 +35,7 @@
 | openpyxl | 3.1.5 | MIT |
 | pytesseract | 0.3.13 | Apache-2.0 |
 | pdf2image | 1.17.0 | MIT |
+| Pillow | 12.3.0 | HPND |
 
 Опциональный OCR-backend (НЕ входит в базовые зависимости): rapidocr_onnxruntime
 (Apache-2.0) + onnxruntime (MIT, функционально включён в пакет RapidOCR).

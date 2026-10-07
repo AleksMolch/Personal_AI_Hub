@@ -98,3 +98,17 @@ async def test_list_models_ignores_malformed_pricing(mock_provider) -> None:
     )
     models = await OpenAICompatibleAdapter().list_models(_connection(mock_provider))
     assert models[0].pricing is None
+
+
+@pytest.mark.asyncio
+async def test_embed_parses_usage(mock_provider) -> None:
+    """Usage эмбеддингов не теряется: расход фиксируется как actual."""
+    mock_provider.spec["POST /embeddings"] = (
+        200,
+        '{"data":[{"embedding":[1.0,2.0]}],"usage":{"prompt_tokens":11,"total_tokens":11}}',
+    )
+    result = await OpenAICompatibleAdapter().embed(
+        _connection(mock_provider), ["hello"], "embed-1"
+    )
+    assert result.vectors == [[1.0, 2.0]]
+    assert result.usage == {"prompt_tokens": 11, "total_tokens": 11}

@@ -250,11 +250,13 @@ async def finalize_generation(
     usage: dict | None,
     billing: BillingContext,
     provider_request_id: str | None,
+    estimated_units: dict | None = None,
 ) -> UsageRecord | None:
     """Фиксирует расход и закрывает резервирование после генерации.
 
     Если провайдер вернул usage — cost_state=actual, иначе estimated на основе
-    предварительной оценки.
+    предварительной оценки. `estimated_units` позволяет посчитать оценку по
+    частично выполненному вызову (например, часть батчей embeddings дошла).
     """
     price = PriceSnapshot(
         model_profile_id=model_profile_id,
@@ -266,11 +268,19 @@ async def finalize_generation(
 
     if usage:
         units = parse_usage(usage)
+        # operation — метаданные вызова; parse_usage возвращает только токены.
+        operation = (billing.estimated_units or {}).get("operation")
+        if operation:
+            units["operation"] = operation
         cost = compute_cost(units, price)
         cost_state = CostState.ACTUAL.value
     else:
-        units = billing.estimated_units
-        cost = billing.estimated_cost
+        units = estimated_units or billing.estimated_units
+        cost = (
+            estimate_cost(units["input_tokens"], units["output_tokens"], price)
+            if estimated_units is not None
+            else billing.estimated_cost
+        )
         cost_state = CostState.ESTIMATED.value
 
     base_cost, fx_id = await convert_to_base(
@@ -370,8 +380,13 @@ async def settle_external_call(
     model_profile_id: uuid.UUID,
     billing: BillingContext,
     usage: dict | None,
+    estimated_units: dict | None = None,
 ) -> UsageRecord | None:
-    """Фиксирует расход по внешнему вызову и закрывает резервирование."""
+    """Фиксирует расход по внешнему вызову и закрывает резервирование.
+
+    `estimated_units` — оценка для частично выполненного вызова (провайдер
+    успел обработать только часть батчей и usage недоступен).
+    """
     record = await finalize_generation(
         session,
         user_id=user_id,
@@ -381,6 +396,7 @@ async def settle_external_call(
         usage=usage,
         billing=billing,
         provider_request_id=None,
+        estimated_units=estimated_units,
     )
     await session.commit()
     return record

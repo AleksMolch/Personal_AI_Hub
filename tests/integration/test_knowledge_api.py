@@ -25,11 +25,26 @@ def _embedding_handler(method, path, body):
     data = json.loads(body)
     inputs = data["input"] if isinstance(data["input"], list) else [data["input"]]
     embeddings = [{"embedding": [1.0, 0.0, 0.0]} for _ in inputs]
-    return 200, json.dumps({"data": embeddings}), {}
+    return (
+        200,
+        json.dumps(
+            {"data": embeddings, "usage": {"prompt_tokens": 11, "total_tokens": 11}}
+        ),
+        {},
+    )
 
 
 def _chat_handler(method, path, body):
-    return 200, '{"choices":[{"message":{"content":"Ответ на основе фрагментов [1]"}}]}', {}
+    return (
+        200,
+        json.dumps(
+            {
+                "choices": [{"message": {"content": "Ответ на основе фрагментов [1]"}}],
+                "usage": {"prompt_tokens": 7, "completion_tokens": 3},
+            }
+        ),
+        {},
+    )
 
 
 async def _bootstrap(client: AsyncClient) -> dict:
@@ -39,11 +54,18 @@ async def _bootstrap(client: AsyncClient) -> dict:
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-async def _model_id(client: AsyncClient, headers: dict, mock_provider) -> str:
+async def _models(
+    client: AsyncClient,
+    headers: dict,
+    mock_provider,
+    external_ids: list[str] | None = None,
+) -> dict[str, str]:
+    """Регистрирует провайдера и возвращает {external_model_id: profile_id}."""
+    ids = external_ids or ["embed-1"]
     host, port = mock_provider.server_address
     mock_provider.spec["GET /models"] = (
         200,
-        '{"data": [{"id": "embed-1", "name": "Embed"}]}',
+        json.dumps({"data": [{"id": external_id, "name": external_id} for external_id in ids]}),
     )
     provider = await client.post(
         "/api/v1/providers",
@@ -59,17 +81,23 @@ async def _model_id(client: AsyncClient, headers: dict, mock_provider) -> str:
         f"/api/v1/providers/{provider.json()['id']}/sync-models", headers=headers
     )
     catalog = await client.get("/api/v1/models", headers=headers)
-    return catalog.json()[0]["id"]
+    return {m["external_model_id"]: m["id"] for m in catalog.json()}
 
 
-async def _set_price(client: AsyncClient, headers: dict, model_id: str) -> None:
+async def _model_id(client: AsyncClient, headers: dict, mock_provider) -> str:
+    return next(iter((await _models(client, headers, mock_provider)).values()))
+
+
+async def _set_price(
+    client: AsyncClient, headers: dict, model_id: str, currency: str = "USD"
+) -> None:
     await client.post(
         "/api/v1/prices",
         json={
             "model_profile_id": model_id,
             "input_per_million": "1.00",
             "output_per_million": "2.00",
-            "currency": "USD",
+            "currency": currency,
         },
         headers=headers,
     )
@@ -143,6 +171,7 @@ async def test_ingest_and_query(client: AsyncClient, mock_provider) -> None:
     headers = await _bootstrap(client)
     model_id = await _model_id(client, headers, mock_provider)
     mock_provider.spec["POST /embeddings"] = _embedding_handler
+    await _set_price(client, headers, model_id)
 
     kb = await client.post(
         "/api/v1/knowledge-bases",
@@ -181,6 +210,7 @@ async def test_query_empty_kb_insufficient(client: AsyncClient, mock_provider) -
     headers = await _bootstrap(client)
     model_id = await _model_id(client, headers, mock_provider)
     mock_provider.spec["POST /embeddings"] = _embedding_handler
+    await _set_price(client, headers, model_id)
 
     kb = await client.post(
         "/api/v1/knowledge-bases",
@@ -232,15 +262,21 @@ async def test_query_synthesizes_answer(client: AsyncClient, mock_provider) -> N
 
 
 async def test_synthesis_skipped_without_price(client: AsyncClient, mock_provider) -> None:
-    """Без цены платный синтез не вызывается (answer=None)."""
+    """Без цены платный синтез не вызывается (answer=None).
+
+    Embedding-модель при этом имеет цену (иначе индексация запрещена), а
+    chat-модель — другая и без цены: синтез пропускается, retrieval работает.
+    """
     headers = await _bootstrap(client)
-    model_id = await _model_id(client, headers, mock_provider)
+    models = await _models(client, headers, mock_provider, ["embed-1", "chat-1"])
+    embed_id, chat_id = models["embed-1"], models["chat-1"]
     mock_provider.spec["POST /embeddings"] = _embedding_handler
     mock_provider.spec["POST /chat/completions"] = _chat_handler
+    await _set_price(client, headers, embed_id)
 
     kb = await client.post(
         "/api/v1/knowledge-bases",
-        json={"name": "Docs", "embedding_model_profile_id": model_id},
+        json={"name": "Docs", "embedding_model_profile_id": embed_id},
         headers=headers,
     )
     kb_id = kb.json()["id"]
@@ -254,7 +290,7 @@ async def test_synthesis_skipped_without_price(client: AsyncClient, mock_provide
 
     query = await client.post(
         f"/api/v1/knowledge-bases/{kb_id}/query",
-        json={"text": "Persia", "chat_model_profile_id": model_id},
+        json={"text": "Persia", "chat_model_profile_id": chat_id},
         headers=headers,
     )
     result = query.json()
@@ -302,6 +338,7 @@ async def test_ocr_scan_document_indexed(client: AsyncClient, mock_provider, mon
     headers = await _bootstrap(client)
     model_id = await _model_id(client, headers, mock_provider)
     mock_provider.spec["POST /embeddings"] = _embedding_handler
+    await _set_price(client, headers, model_id)
     monkeypatch.setattr(
         "personal_hub.ocr.get_ocr_backend", lambda: _DeterministicOcr("scan only content")
     )
@@ -452,6 +489,7 @@ async def test_real_tesseract_extracts_text_from_scan(
     headers = await _bootstrap(client)
     model_id = await _model_id(client, headers, mock_provider)
     mock_provider.spec["POST /embeddings"] = _embedding_handler
+    await _set_price(client, headers, model_id)
 
     kb = await client.post(
         "/api/v1/knowledge-bases",
@@ -565,3 +603,248 @@ async def test_ingest_corrupt_image_marks_document_failed(
     document = detail.json()["documents"][0]
     assert document["status"] == "failed"
     assert document["error_code"] == "PARSE_FAILED"
+
+
+async def test_ingest_without_price_marks_document_failed(
+    client: AsyncClient, mock_provider
+) -> None:
+    """Без цены embedding-модели платный вызов не уходит: документ failed.
+
+    Индексация не должна обходить бюджет: при отсутствии PriceSnapshot
+    провайдер не вызывается вовсе, документ получает PRICE_REQUIRED.
+    """
+    headers = await _bootstrap(client)
+    model_id = await _model_id(client, headers, mock_provider)
+    calls = {"embeddings": 0}
+
+    def _counting_embeddings(method, path, body):
+        calls["embeddings"] += 1
+        return 200, json.dumps({"data": [{"embedding": [1.0, 0.0, 0.0]}]}), {}
+
+    mock_provider.spec["POST /embeddings"] = _counting_embeddings
+
+    kb = await client.post(
+        "/api/v1/knowledge-bases",
+        json={"name": "NoPrice", "embedding_model_profile_id": model_id},
+        headers=headers,
+    )
+    kb_id = kb.json()["id"]
+
+    resp = await client.post(
+        f"/api/v1/knowledge-bases/{kb_id}/documents",
+        headers=headers,
+        files={"file": ("notes.txt", b"Persia was a great empire", "text/plain")},
+    )
+    job_id = resp.json()["job_id"]
+    await execute_job(uuid.UUID(job_id))
+
+    detail = await client.get(f"/api/v1/knowledge-bases/{kb_id}", headers=headers)
+    document = detail.json()["documents"][0]
+    assert document["status"] == "failed"
+    assert document["error_code"] == "PRICE_REQUIRED"
+    assert calls["embeddings"] == 0
+
+    from personal_hub.models import Job
+
+    factory = get_session_factory()
+    async with factory() as session:
+        job = await session.get(Job, uuid.UUID(job_id))
+        assert job is not None
+        assert job.status == "failed"
+
+
+async def test_query_without_price_returns_400(client: AsyncClient, mock_provider) -> None:
+    """Без цены embedding-модели RAG-запрос не уходит провайдеру (400)."""
+    headers = await _bootstrap(client)
+    model_id = await _model_id(client, headers, mock_provider)
+    calls = {"embeddings": 0}
+
+    def _counting_embeddings(method, path, body):
+        calls["embeddings"] += 1
+        return 200, json.dumps({"data": [{"embedding": [1.0, 0.0, 0.0]}]}), {}
+
+    mock_provider.spec["POST /embeddings"] = _counting_embeddings
+
+    kb = await client.post(
+        "/api/v1/knowledge-bases",
+        json={"name": "NoPrice", "embedding_model_profile_id": model_id},
+        headers=headers,
+    )
+    kb_id = kb.json()["id"]
+
+    query = await client.post(
+        f"/api/v1/knowledge-bases/{kb_id}/query",
+        json={"text": "anything"},
+        headers=headers,
+    )
+    assert query.status_code == 400
+    assert "Цена" in query.json()["error"]["message"]
+    assert calls["embeddings"] == 0
+
+
+async def test_ingest_fx_missing_marks_document_failed(
+    client: AsyncClient, mock_provider
+) -> None:
+    """Нет курса валюты цены к бюджету — документ failed, а не вечный pending."""
+    headers = await _bootstrap(client)
+    model_id = await _model_id(client, headers, mock_provider)
+    mock_provider.spec["POST /embeddings"] = _embedding_handler
+    # Цена в RUB при бюджете USD и без FxRate: резервирование падает.
+    await _set_price(client, headers, model_id, currency="RUB")
+
+    kb = await client.post(
+        "/api/v1/knowledge-bases",
+        json={"name": "Fx", "embedding_model_profile_id": model_id},
+        headers=headers,
+    )
+    kb_id = kb.json()["id"]
+
+    resp = await client.post(
+        f"/api/v1/knowledge-bases/{kb_id}/documents",
+        headers=headers,
+        files={"file": ("notes.txt", b"Persia was a great empire", "text/plain")},
+    )
+    await execute_job(uuid.UUID(resp.json()["job_id"]))
+
+    detail = await client.get(f"/api/v1/knowledge-bases/{kb_id}", headers=headers)
+    document = detail.json()["documents"][0]
+    assert document["status"] == "failed"
+    assert document["error_code"] == "FX_RATE_MISSING"
+
+
+async def test_ingest_budget_exceeded_marks_document_failed(
+    client: AsyncClient, mock_provider
+) -> None:
+    """Исчерпанный бюджет индексации виден как BUDGET_EXCEEDED, без pending."""
+    headers = await _bootstrap(client)
+    model_id = await _model_id(client, headers, mock_provider)
+    mock_provider.spec["POST /embeddings"] = _embedding_handler
+    await _set_price(client, headers, model_id)
+    await client.put(
+        "/api/v1/budgets", json={"daily_limit": "0.00000001"}, headers=headers
+    )
+
+    kb = await client.post(
+        "/api/v1/knowledge-bases",
+        json={"name": "Broke", "embedding_model_profile_id": model_id},
+        headers=headers,
+    )
+    kb_id = kb.json()["id"]
+
+    resp = await client.post(
+        f"/api/v1/knowledge-bases/{kb_id}/documents",
+        headers=headers,
+        files={"file": ("notes.txt", b"Persia was a great empire", "text/plain")},
+    )
+    await execute_job(uuid.UUID(resp.json()["job_id"]))
+
+    detail = await client.get(f"/api/v1/knowledge-bases/{kb_id}", headers=headers)
+    document = detail.json()["documents"][0]
+    assert document["status"] == "failed"
+    assert document["error_code"] == "BUDGET_EXCEEDED"
+
+
+async def test_external_calls_settle_actual_usage(
+    client: AsyncClient, mock_provider
+) -> None:
+    """Фактический usage провайдера фиксируется как actual, а не estimated."""
+    from personal_hub.models import CostState
+
+    headers = await _bootstrap(client)
+    model_id = await _model_id(client, headers, mock_provider)
+    mock_provider.spec["POST /embeddings"] = _embedding_handler
+    mock_provider.spec["POST /chat/completions"] = _chat_handler
+    await _set_price(client, headers, model_id)
+
+    kb = await client.post(
+        "/api/v1/knowledge-bases",
+        json={"name": "Docs", "embedding_model_profile_id": model_id},
+        headers=headers,
+    )
+    kb_id = kb.json()["id"]
+
+    resp = await client.post(
+        f"/api/v1/knowledge-bases/{kb_id}/documents",
+        headers=headers,
+        files={"file": ("notes.txt", b"Persia was a great empire", "text/plain")},
+    )
+    await execute_job(uuid.UUID(resp.json()["job_id"]))
+
+    query = await client.post(
+        f"/api/v1/knowledge-bases/{kb_id}/query",
+        json={"text": "Persia", "chat_model_profile_id": model_id},
+        headers=headers,
+    )
+    assert query.json()["answer"] is not None
+
+    factory = get_session_factory()
+    async with factory() as session:
+        records = (await session.execute(select(UsageRecord))).scalars().all()
+    by_operation = {
+        r.units_json["operation"]: r for r in records if r.units_json.get("operation")
+    }
+    assert set(by_operation) == {"embedding", "rag_query_embedding", "rag_synthesis"}
+    # Токены взяты из ответа провайдера, а не из оценки по символам.
+    assert by_operation["embedding"].units_json["input_tokens"] == 11
+    assert all(
+        record.cost_state == CostState.ACTUAL.value for record in by_operation.values()
+    )
+    synthesis = by_operation["rag_synthesis"].units_json
+    assert synthesis["input_tokens"] == 7
+    assert synthesis["output_tokens"] == 3
+
+
+async def test_indexing_failure_after_embeddings_records_usage(
+    client: AsyncClient, mock_provider, monkeypatch
+) -> None:
+    """Сбой после оплаченных эмбеддингов не теряет расход: UsageRecord есть.
+
+    Провайдер уже выполнил работу (и списал средства), поэтому резерв нужно
+    не отменять, а финализировать; документ при этом failed.
+    """
+    from personal_hub.models import CostReservation, CostState, ReservationStatus
+
+    headers = await _bootstrap(client)
+    model_id = await _model_id(client, headers, mock_provider)
+    mock_provider.spec["POST /embeddings"] = _embedding_handler
+    await _set_price(client, headers, model_id)
+
+    class _BrokenStore:
+        """Хранилище, падающее после успешных вызовов провайдера."""
+
+        async def ensure_collection(self, collection: str, vector_size: int) -> None:
+            return None
+
+        async def upsert(self, collection: str, points: list) -> None:
+            raise RuntimeError("vector store down")
+
+    monkeypatch.setattr("worker.tasks.ingest.get_vector_store", lambda: _BrokenStore())
+
+    kb = await client.post(
+        "/api/v1/knowledge-bases",
+        json={"name": "Broken", "embedding_model_profile_id": model_id},
+        headers=headers,
+    )
+    kb_id = kb.json()["id"]
+
+    resp = await client.post(
+        f"/api/v1/knowledge-bases/{kb_id}/documents",
+        headers=headers,
+        files={"file": ("notes.txt", b"Persia was a great empire", "text/plain")},
+    )
+    await execute_job(uuid.UUID(resp.json()["job_id"]))
+
+    detail = await client.get(f"/api/v1/knowledge-bases/{kb_id}", headers=headers)
+    document = detail.json()["documents"][0]
+    assert document["status"] == "failed"
+    assert document["error_code"] == "INGEST_FAILED"
+
+    factory = get_session_factory()
+    async with factory() as session:
+        records = (await session.execute(select(UsageRecord))).scalars().all()
+        reservations = (await session.execute(select(CostReservation))).scalars().all()
+    assert len(records) == 1
+    assert records[0].units_json.get("operation") == "embedding"
+    assert records[0].cost_state == CostState.ACTUAL.value
+    assert records[0].units_json["input_tokens"] == 11
+    assert all(r.status == ReservationStatus.SETTLED.value for r in reservations)

@@ -88,10 +88,13 @@ async def test_stream_chat_malformed_event_skipped(mock_provider) -> None:
 
 @pytest.mark.asyncio
 async def test_chat_complete(mock_provider) -> None:
+    """chat_complete возвращает текст и фактический usage провайдера."""
     mock_provider.spec["POST /chat/completions"] = (
         200,
-        '{"choices":[{"message":{"content":"Синтезированный ответ"}}]}',
+        '{"choices":[{"message":{"content":"Синтезированный ответ"}}],'
+        '"usage":{"prompt_tokens":7,"completion_tokens":3}}',
     )
     adapter = OpenAICompatibleAdapter()
-    text = await adapter.chat_complete(_connection(mock_provider), _request())
-    assert text == "Синтезированный ответ"
+    completion = await adapter.chat_complete(_connection(mock_provider), _request())
+    assert completion.text == "Синтезированный ответ"
+    assert completion.usage == {"prompt_tokens": 7, "completion_tokens": 3}

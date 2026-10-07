@@ -270,36 +270,40 @@ async def query_knowledge_base(
     kb = await _owned_kb(session, kb_id, user)
     connection, model = await _embedding_connection(session, kb)
 
-    # Embedding запроса — платный вызов: при наличии цены резервируем бюджет
-    # ДО вызова, фиксируем расход после (смотри billing.py).
+    # Embedding запроса — платный вызов: цена обязательна, бюджет резервируется
+    # ДО вызова, расход фиксируется после (смотри billing.py). Без цены вызов
+    # не выполняется, как и в чате.
     price = await get_latest_price(session, model.id)
-    billing = None
-    if price is not None:
-        billing = await reserve_external_call(
-            session,
-            user.id,
-            price=price,
-            units=embedding_units(payload.text, "rag_query_embedding"),
+    if price is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Цена модели эмбеддингов не задана. Задайте цену на странице «Модели».",
         )
+    billing = await reserve_external_call(
+        session,
+        user.id,
+        price=price,
+        units=embedding_units(payload.text, "rag_query_embedding"),
+    )
 
     adapter = get_adapter(connection.provider_type)
     try:
         result = await adapter.embed(connection, [payload.text], model.external_model_id)
     except Exception:
-        if billing is not None:
-            await cancel_external_call(session, billing=billing)
+        await cancel_external_call(session, billing=billing)
         raise
-    query_vector = result.vectors[0]
 
-    if billing is not None:
-        await settle_external_call(
-            session,
-            user_id=user.id,
-            provider_id=model.provider_id,
-            model_profile_id=model.id,
-            billing=billing,
-            usage=None,
-        )
+    # Фиксируем расход сразу после ответа провайдера: сбой дальнейшей
+    # обработки вектора не должен скрывать уже понесённый расход.
+    await settle_external_call(
+        session,
+        user_id=user.id,
+        provider_id=model.provider_id,
+        model_profile_id=model.id,
+        billing=billing,
+        usage=result.usage,
+    )
+    query_vector = result.vectors[0]
 
     hits = await get_vector_store().search(
         collection_name(kb.id, kb.embedding_version), query_vector, payload.top_k
@@ -389,7 +393,7 @@ async def _synthesize(
 
     adapter = get_adapter(provider.provider_type)
     try:
-        answer = await adapter.chat_complete(connection, request)
+        completion = await adapter.chat_complete(connection, request)
     except Exception:
         await cancel_external_call(session, billing=billing)
         raise
@@ -400,9 +404,9 @@ async def _synthesize(
         provider_id=provider.id,
         model_profile_id=chat_model.id,
         billing=billing,
-        usage=None,
+        usage=completion.usage,
     )
-    return answer
+    return completion.text
 
 
 async def _chunk_text(session: AsyncSession, vector_id: str) -> str:

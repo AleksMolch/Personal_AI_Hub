@@ -106,6 +106,16 @@ class EmbeddingResult:
 
     vectors: list[list[float]]
     model: str = ""
+    # Фактический usage провайдера (например, prompt_tokens), если он отдан.
+    usage: dict | None = None
+
+
+@dataclass
+class ChatCompletionResult:
+    """Результат непотокового чата: текст и фактический usage провайдера."""
+
+    text: str
+    usage: dict | None = None
 
 
 class ProviderAdapter(Protocol):
@@ -130,6 +140,10 @@ class ChatProvider(ProviderAdapter, Protocol):
     def stream_chat(
         self, connection: ProviderConnection, request: ChatRequest
     ) -> AsyncIterator[ChatChunk]: ...
+
+    async def chat_complete(
+        self, connection: ProviderConnection, request: ChatRequest
+    ) -> ChatCompletionResult: ...
 
 
 class EmbeddingProvider(ProviderAdapter, Protocol):

@@ -150,19 +150,29 @@ async def ingest_document(job_id: uuid.UUID) -> dict:
 
     await _check_cancelled(job_id)
 
-    # Резервирование стоимости эмбеддингов ДО вызова провайдера (если для
-    # модели задана цена). Если цена не задана — расход не учтён, но
-    # индексация продолжается (цена неизвестна → бюджет не контролируется).
+    # Резервирование стоимости эмбеддингов ДО вызова провайдера. Цена
+    # обязательна: без неё платный вызов не контролируется бюджетом и не
+    # выполняется вовсе (симметрично чату и RAG-синтезу).
     billing = None
-    if price is not None:
-        units = embedding_units("\n".join(c.text for c in chunks), "embedding")
+    if price is None:
+        await _set_document_status(document_id, "failed", "PRICE_REQUIRED")
+        raise ValueError("цена модели эмбеддингов не задана")
+    units = embedding_units("\n".join(c.text for c in chunks), "embedding")
+    try:
         async with factory() as session:
             billing = await reserve_external_call(
                 session, user_id, price=price, units=units
             )
-    else:
-        logger.info("ingest_no_price=%s document=%s", embedding_model, document_id)
+    except Exception as exc:
+        # BUDGET_EXCEEDED/FX_RATE_MISSING и прочие сбои резервирования видны
+        # в статусе документа, а не оставляют его в pending.
+        await _set_document_status(
+            document_id, "failed", getattr(exc, "code", None) or "INGEST_FAILED"
+        )
+        raise
 
+    usage_totals: dict[str, int] = {}
+    embedded_chunks = 0
     try:
         adapter = get_adapter(connection.provider_type)
         vectors: list[list[float]] = []
@@ -171,6 +181,15 @@ async def ingest_document(job_id: uuid.UUID) -> dict:
             batch = chunks[start : start + EMBED_BATCH_SIZE]
             result = await adapter.embed(connection, [c.text for c in batch], embedding_model)
             vectors.extend(result.vectors)
+            embedded_chunks += len(batch)
+            # Суммируем фактический usage по батчам (если провайдер его отдал).
+            if result.usage:
+                usage_totals["prompt_tokens"] = usage_totals.get("prompt_tokens", 0) + int(
+                    result.usage.get("prompt_tokens") or 0
+                )
+                usage_totals["completion_tokens"] = usage_totals.get(
+                    "completion_tokens", 0
+                ) + int(result.usage.get("completion_tokens") or 0)
 
         vector_store = get_vector_store()
         await vector_store.ensure_collection(collection, len(vectors[0]))
@@ -213,8 +232,26 @@ async def ingest_document(job_id: uuid.UUID) -> dict:
             await session.commit()
     except Exception as exc:
         if billing is not None:
-            async with factory() as session:
-                await cancel_external_call(session, billing=billing)
+            if embedded_chunks:
+                # Провайдер уже выполнил (и списал) часть работы: резерв
+                # финализируем, а не отменяем. Если usage не отдан — считаем
+                # оценку только по фактически обработанным чанкам.
+                partial_units = embedding_units(
+                    "\n".join(c.text for c in chunks[:embedded_chunks]), "embedding"
+                )
+                async with factory() as session:
+                    await settle_external_call(
+                        session,
+                        user_id=user_id,
+                        provider_id=provider_id,
+                        model_profile_id=model_profile_id,
+                        billing=billing,
+                        usage=usage_totals or None,
+                        estimated_units=partial_units if not usage_totals else None,
+                    )
+            else:
+                async with factory() as session:
+                    await cancel_external_call(session, billing=billing)
         # Причина видна пользователю: документ не должен «зависать» в pending
         # при сбое провайдера (код из ProviderError) или другом сбое записи.
         # Отмена — отдельный сценарий: статус не меняем, задачу можно перезапустить.
@@ -232,7 +269,7 @@ async def ingest_document(job_id: uuid.UUID) -> dict:
                 provider_id=provider_id,
                 model_profile_id=model_profile_id,
                 billing=billing,
-                usage=None,
+                usage=usage_totals or None,
             )
 
     return {"chunks": len(chunks), "document_id": str(document_id)}

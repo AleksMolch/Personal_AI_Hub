@@ -16,6 +16,7 @@ import httpx
 from personal_hub.providers.base import (
     Capability,
     ChatChunk,
+    ChatCompletionResult,
     ChatRequest,
     EmbeddingResult,
     HealthResult,
@@ -210,14 +211,17 @@ class OpenAICompatibleAdapter:
         if resp.status_code != 200:
             raise normalize_http_status(resp.status_code)
 
-        data = resp.json().get("data", [])
+        body = resp.json()
+        data = body.get("data", [])
         vectors = [item["embedding"] for item in data]
-        return EmbeddingResult(vectors=vectors, model=model)
+        # usage эмбеддингов (prompt_tokens) нужен billing'у для actual-расчёта.
+        usage = body.get("usage")
+        return EmbeddingResult(vectors=vectors, model=model, usage=usage)
 
     async def chat_complete(
         self, connection: ProviderConnection, request: ChatRequest
-    ) -> str:
-        """Непотоковый чат (для RAG-синтеза): возвращает текст ответа."""
+    ) -> ChatCompletionResult:
+        """Непотоковый чат (для RAG-синтеза): текст ответа и usage."""
         url = f"{connection.base_url.rstrip('/')}/chat/completions"
         messages: list[dict] = [{"role": m.role, "content": m.content} for m in request.messages]
         if request.system:
@@ -241,5 +245,8 @@ class OpenAICompatibleAdapter:
         if resp.status_code != 200:
             raise normalize_http_status(resp.status_code)
 
-        choices = resp.json().get("choices") or [{}]
-        return (choices[0].get("message") or {}).get("content") or ""
+        body = resp.json()
+        choices = body.get("choices") or [{}]
+        text = (choices[0].get("message") or {}).get("content") or ""
+        # usage непотокового чата (prompt/completion tokens) для actual-расчёта.
+        return ChatCompletionResult(text=text, usage=body.get("usage"))
