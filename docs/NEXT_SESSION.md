@@ -47,8 +47,8 @@ make bootstrap      # окружение + .env + сборка
 make up             # запуск стека
 make down           # остановка
 make lint typecheck # ruff/mypy + tsc/eslint
-make test-unit      # 80 тестов (docker)
-make test-integration  # 44 теста (изолированный postgres+valkey)
+make test-unit      # 85 тестов (docker)
+make test-integration  # 55 тестов (изолированный postgres+valkey)
 make test-e2e       # Playwright (нужен запущенный стек + admin/supersecret123)
 make smoke          # smoke поднятого экземпляра
 make backup         # архив в backups/
@@ -117,7 +117,7 @@ make backup         # архив в backups/
      (`parsing.py`): raise `OcrError`, в worker ловятся → документ
      `status=failed, error_code=OCR_*`. Поддержаны изображения
      (PNG/JPG/TIFF/WEBP/BMP) как документы; UI accept обновлён.
-   - Тесты: 12 unit (`tests/unit/test_ocr.py`: выбор backend, auto/fallback,
+   - Тесты: 13 unit (`tests/unit/test_ocr.py`: выбор backend, auto/fallback,
      таймаут, downscale, лимит страниц, разбор изображения, первопричина
      ошибки импорта RapidOCR), 5 integration
      (`test_knowledge_api.py`: синтез без цены пропускается, UsageRecord для
@@ -172,7 +172,10 @@ make backup         # архив в backups/
       failed при сбоях провайдера/разбора (`PROVIDER_ERROR`/`PARSE_FAILED`),
       OCR рендерит только запрошенные страницы (лимит `OCR_MAX_PAGES` больше
       не обходится диапазоном min..max), Base URL OpenRouter в примерах
-      LiteLLM. Тесты: unit 83→84, integration 47→49.
+      LiteLLM. Плюс правки по ревью: цена обязательна для embedding-вызовов
+      (PRICE_REQUIRED), ошибки резервирования видны в документе, частично
+      выполненный вызов финализируется, actual usage провайдера пишется в
+      UsageRecord. Итог: unit 85, integration 55.
 
 8. **Этап 2 «Video»** — НЕ начинать до закрытия пунктов 1–2 (release gate).
    Далее: исследование контрактов Veo/Seedance/Kling/Sora, ADR на каждый адаптер,
@@ -199,7 +202,7 @@ OCR, чанкинг, embeddings, Qdrant, query с цитатами + LLM-син�
 (CSV/XLSX + DuckDB read-only sandbox), релиз (README/LICENSE/notices, backup/
 restore, E2E Playwright).
 
-Текущие проверки зелёные: make test-unit (84), make test-integration (49),
+Текущие проверки зелёные: make test-unit (85), make test-integration (55),
 ruff/mypy/tsc/eslint/prettier, make test-e2e (нужен Node 20+). Стек:
 api/worker/beat/web + postgres/valkey/qdrant, запускается docker compose
 up -d --build. Опционально: make up-litellm (профиль `litellm`, ADR-0004).
@@ -228,7 +231,7 @@ poppler→tesseract (blank-скан PDF → EMPTY_DOCUMENT в статусе д�
 - Итерация 3: LiteLLM как внешний proxy (ADR-0004), integration 45→47.
 Закрыто 2026-10-07:
 - исправления предыдущей сессии: ingest помечает документ failed при сбоях
-  провайдера/разбора (unit 84, integration 48→49), OCR рендерит только
+  провайдера/разбора (unit 85, integration 55), OCR рендерит только
   запрошенные страницы, исправлен Base URL OpenRouter в примерах LiteLLM;
 - Итерация 5: benchmark `experiments/llamaindex_rag_benchmark/` — dependency
   не добавляется, recall@k совпадает, decision report в assessment.

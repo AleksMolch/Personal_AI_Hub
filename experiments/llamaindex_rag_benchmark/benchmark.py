@@ -187,6 +187,7 @@ async def run_current(dataset: dict, top_k: int) -> tuple[list[QuestionOutcome],
                 )
             )
     await store.upsert(collection, points)
+    build_ms = (time.perf_counter() - started) * 1000.0
 
     # Прогрев: первый поиск не должен попадать в замер latency.
     await store.search(collection, embed_text(dataset["questions"][0]["question"]), top_k)
@@ -202,7 +203,6 @@ async def run_current(dataset: dict, top_k: int) -> tuple[list[QuestionOutcome],
         ]
         outcomes.append(_evaluate_question(question, retrieved, latency_ms))
 
-    build_ms = (time.perf_counter() - started) * 1000.0
     peak_ram_mb = tracemalloc.get_traced_memory()[1] / 1024 / 1024
     tracemalloc.stop()
     summary = _summarize("current", outcomes, chunks_total, build_ms, peak_ram_mb)
@@ -262,6 +262,7 @@ def run_llamaindex(dataset: dict, top_k: int) -> tuple[list[QuestionOutcome], di
         embed_model=embed_model,
     )
     chunks_total = len(getattr(index.index_struct, "nodes_dict", {}))
+    build_ms = (time.perf_counter() - started) * 1000.0
 
     retriever = index.as_retriever(similarity_top_k=top_k)
     retriever.retrieve(dataset["questions"][0]["question"])  # прогрев
@@ -281,7 +282,6 @@ def run_llamaindex(dataset: dict, top_k: int) -> tuple[list[QuestionOutcome], di
         ]
         outcomes.append(_evaluate_question(question, retrieved, latency_ms))
 
-    build_ms = (time.perf_counter() - started) * 1000.0
     peak_ram_mb = tracemalloc.get_traced_memory()[1] / 1024 / 1024
     tracemalloc.stop()
     summary = _summarize("llamaindex", outcomes, chunks_total, build_ms, peak_ram_mb)
@@ -320,7 +320,7 @@ def _print_report(summaries: list[dict], outcomes: dict[str, list[QuestionOutcom
         refused = [cell.refused for cell in cells]
         if len(set(ranks)) > 1 or len(set(facts)) > 1 or len(set(refused)) > 1:
             parts = []
-            for name, cell in zip(names, cells):
+            for name, cell in zip(names, cells, strict=True):
                 if cell.expected_document is None:
                     parts.append(f"{name}: отказ={cell.refused}")
                 else:
