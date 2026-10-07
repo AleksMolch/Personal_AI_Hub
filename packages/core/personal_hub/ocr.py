@@ -231,15 +231,29 @@ def recognize_image(
         ) from None
 
 
+def _contiguous_runs(pages: list[int]) -> list[tuple[int, int]]:
+    """Группирует отсортированные номера страниц в непрерывные диапазоны."""
+    runs: list[tuple[int, int]] = []
+    for page in pages:
+        if runs and page == runs[-1][1] + 1:
+            runs[-1] = (runs[-1][0], page)
+        else:
+            runs.append((page, page))
+    return runs
+
+
 def ocr_pdf_pages(data: bytes, page_indices: list[int]) -> dict[int, str]:
     """Распознаёт пустые страницы PDF-скана; возвращает {page_num: text}.
 
-    Ограничения: распознаётся не более `OCR_MAX_PAGES` страниц. Ошибки OCR
+    Ограничения: распознаётся не более `OCR_MAX_PAGES` страниц. Рендер идёт
+    только по запрошенным страницам; разрозненные номера рендерятся отдельными
+    диапазонами, чтобы не грузить в RAM сотни ненужных страниц. Ошибки OCR
     не проглатываются: поднимается OcrError, чтобы задача индексации получила
     видимый code.
     """
     settings = get_settings()
-    limited = page_indices[: settings.ocr_max_pages] if settings.ocr_max_pages else page_indices
+    ordered = sorted(set(page_indices))
+    limited = ordered[: settings.ocr_max_pages] if settings.ocr_max_pages else ordered
     if not limited:
         return {}
 
@@ -250,21 +264,22 @@ def ocr_pdf_pages(data: bytes, page_indices: list[int]) -> dict[int, str]:
             "OCR_UNAVAILABLE", "pdf2image не установлен (нужен poppler)."
         ) from exc
 
-    start = min(limited)
-    end = max(limited)
-    try:
-        images = convert_from_bytes(data, first_page=start, last_page=end)
-    except Exception as exc:
-        raise OcrError("OCR_FAILED", f"Не удалось отрендерить страницы: {exc}") from exc
-
     backend = get_ocr_backend()
     languages = parse_languages(settings.ocr_languages)
+    requested = set(limited)
     result: dict[int, str] = {}
-    for offset, image in enumerate(images):
-        page_num = start + offset
-        if page_num not in limited:
-            continue
-        text = recognize_image(image, languages, backend=backend)
-        if text.text:
-            result[page_num] = text.text
+    for run_start, run_end in _contiguous_runs(limited):
+        try:
+            images = convert_from_bytes(data, first_page=run_start, last_page=run_end)
+        except Exception as exc:
+            raise OcrError(
+                "OCR_FAILED", f"Не удалось отрендерить страницы: {exc}"
+            ) from exc
+        for offset, image in enumerate(images):
+            page_num = run_start + offset
+            if page_num not in requested:
+                continue
+            text = recognize_image(image, languages, backend=backend)
+            if text.text:
+                result[page_num] = text.text
     return result

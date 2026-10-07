@@ -485,3 +485,83 @@ async def test_real_tesseract_extracts_text_from_scan(
         chunks = (await session.execute(select(Chunk))).scalars().all()
     # VECTORSEARCH выбран как различимый токен (без неоднозначных I/l в «AI»).
     assert any("VECTORSEARCH" in _normalized_ocr(chunk.content) for chunk in chunks)
+
+
+async def test_ingest_embedding_failure_marks_document_failed(
+    client: AsyncClient, mock_provider
+) -> None:
+    """Сбой эмбеддингов виден в статусе документа, а не оставляет его pending.
+
+    Провайдер отвечает 500 — индексация падает, документ должен получить
+    status=failed и нормализованный код ошибки, а резервирование бюджета
+    (если было) — освободиться.
+    """
+    headers = await _bootstrap(client)
+    model_id = await _model_id(client, headers, mock_provider)
+    await _set_price(client, headers, model_id)
+    mock_provider.spec["POST /embeddings"] = (500, '{"error": "upstream boom"}')
+
+    kb = await client.post(
+        "/api/v1/knowledge-bases",
+        json={"name": "Broken", "embedding_model_profile_id": model_id},
+        headers=headers,
+    )
+    kb_id = kb.json()["id"]
+
+    resp = await client.post(
+        f"/api/v1/knowledge-bases/{kb_id}/documents",
+        headers=headers,
+        files={"file": ("notes.txt", b"Persia was a great empire", "text/plain")},
+    )
+    job_id = resp.json()["job_id"]
+    await execute_job(uuid.UUID(job_id))
+
+    detail = await client.get(f"/api/v1/knowledge-bases/{kb_id}", headers=headers)
+    document = detail.json()["documents"][0]
+    assert document["status"] == "failed"
+    assert document["error_code"] == "PROVIDER_ERROR"
+
+    from personal_hub.models import CostReservation, Job, ReservationStatus
+
+    factory = get_session_factory()
+    async with factory() as session:
+        job = await session.get(Job, uuid.UUID(job_id))
+        assert job is not None
+        assert job.status == "failed"
+        reservations = (await session.execute(select(CostReservation))).scalars().all()
+    # Резерв бюджета не должен остаться активным после падения индексации.
+    assert reservations
+    assert all(r.status == ReservationStatus.CANCELLED.value for r in reservations)
+
+
+async def test_ingest_corrupt_image_marks_document_failed(
+    client: AsyncClient, mock_provider
+) -> None:
+    """Битый файл изображения даёт failed с кодом, а не вечный pending.
+
+    Изображения принимаются как документы (OCR-ветка), поэтому ошибка разбора
+    (не-PNG содержимое под видом PNG) должна быть видна так же, как ошибка OCR.
+    """
+    headers = await _bootstrap(client)
+    model_id = await _model_id(client, headers, mock_provider)
+    mock_provider.spec["POST /embeddings"] = _embedding_handler
+
+    kb = await client.post(
+        "/api/v1/knowledge-bases",
+        json={"name": "Broken", "embedding_model_profile_id": model_id},
+        headers=headers,
+    )
+    kb_id = kb.json()["id"]
+
+    resp = await client.post(
+        f"/api/v1/knowledge-bases/{kb_id}/documents",
+        headers=headers,
+        files={"file": ("photo.png", b"this is not a png", "image/png")},
+    )
+    job_id = resp.json()["job_id"]
+    await execute_job(uuid.UUID(job_id))
+
+    detail = await client.get(f"/api/v1/knowledge-bases/{kb_id}", headers=headers)
+    document = detail.json()["documents"][0]
+    assert document["status"] == "failed"
+    assert document["error_code"] == "PARSE_FAILED"

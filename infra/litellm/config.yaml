@@ -11,7 +11,7 @@
 # Перед включением заполните .env:
 #   LITELLM_MASTER_KEY=случайная_строка_для_прокси
 #   LITELLM_UPSTREAM_API_KEY=ключ_провайдера
-#   LITELLM_UPSTREAM_API_BASE=https://api.openrouter.ai/api/v1
+#   LITELLM_UPSTREAM_API_BASE=https://openrouter.ai/api/v1
 #   LITELLM_UPSTREAM_MODEL=openai/<model>   # например openai/gpt-4o-mini
 #
 # ВАЖНО: цены и бюджеты берёт Personal AI Hub, не прокси. Если прокси

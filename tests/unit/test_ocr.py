@@ -159,6 +159,38 @@ def test_ocr_pdf_pages_respects_max_pages(monkeypatch) -> None:
     assert all(result[k] == "PAGE TEXT" for k in result)
 
 
+def test_ocr_pdf_pages_renders_only_requested_pages(monkeypatch) -> None:
+    """Рендер не захватывает пропущенные страницы (иначе PDF рендерится целиком).
+
+    Разрозненные пустые страницы (например, 1 и 500 в PDF на 500 страниц)
+    должны рендериться отдельными вызовами: старый код рендерил диапазон
+    min..max и загружал в RAM сотни страниц, которые OCR не нужны.
+    """
+    monkeypatch.setattr(_settings(), "ocr_max_pages", 10)
+    monkeypatch.setattr(_settings(), "ocr_languages", "rus,eng")
+
+    import pdf2image
+
+    calls: list[tuple[int, int]] = []
+
+    def _fake_convert(data, first_page=None, last_page=None, **kwargs):
+        calls.append((first_page, last_page))
+        count = (last_page or 1) - (first_page or 1) + 1
+        return [Image.new("RGB", (10, 10), "white") for _ in range(count)]
+
+    monkeypatch.setattr(pdf2image, "convert_from_bytes", _fake_convert)
+    fake = _FakeBackend(text="PAGE TEXT")
+    monkeypatch.setattr("personal_hub.ocr.get_ocr_backend", lambda: fake)
+
+    result = ocr_pdf_pages(b"fake pdf bytes", [1, 500])
+
+    rendered: set[int] = set()
+    for first, last in calls:
+        rendered.update(range(first, last + 1))
+    assert rendered == {1, 500}
+    assert set(result) == {1, 500}
+
+
 def test_parse_image_document(monkeypatch) -> None:
     """Изображение проходит OCR-ветку парсинга документов."""
     from personal_hub.ocr import OcrResult

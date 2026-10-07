@@ -33,8 +33,7 @@ from personal_hub.models import (
     PriceSnapshot,
     ProviderCredential,
 )
-from personal_hub.ocr import OcrError
-from personal_hub.parsing import UnsupportedFormatError, parse_document
+from personal_hub.parsing import parse_document
 from personal_hub.providers.base import ProviderConnection
 from personal_hub.providers.registry import get_adapter
 from personal_hub.security.crypto import get_cipher
@@ -92,8 +91,9 @@ async def ingest_document(job_id: uuid.UUID) -> dict:
 
     Parse выполняется в отдельном потоке, чтобы не блокировать event loop
     worker'а при рендере/OCR. Распознавание текста, chunking и запись в
-    хранилища идут в основном потоке Celery (async). Ошибки UnsupportedFormatError
-    и OcrError возвращают видимый error_code в статус документа.
+    хранилища идут в основном потоке Celery (async). Ошибки разбора и OCR
+    возвращают видимый error_code в статус документа (PARSE_FAILED — для
+    битых файлов без собственного кода).
     """
     factory = get_session_factory()
     user_id: uuid.UUID
@@ -134,8 +134,13 @@ async def ingest_document(job_id: uuid.UUID) -> dict:
         # parse_document — синхронная функция; вызываем через to_thread, чтобы
         # не блокировать event loop при pdf2image/OCR на тяжёлых документах.
         pages = await asyncio.to_thread(parse_document, asset_filename, asset_mime, data)
-    except (UnsupportedFormatError, OcrError) as exc:
-        await _set_document_status(document_id, "failed", exc.code)
+    except Exception as exc:
+        # UnsupportedFormatError/OcrError несут готовый code; битый файл
+        # (UnidentifiedImageError, PdfReadError) сводим к PARSE_FAILED, чтобы
+        # документ не оставался навсегда в status=pending.
+        await _set_document_status(
+            document_id, "failed", getattr(exc, "code", None) or "PARSE_FAILED"
+        )
         raise
 
     chunks = chunk_document(pages)
@@ -206,10 +211,17 @@ async def ingest_document(job_id: uuid.UUID) -> dict:
             if document is not None:
                 document.status = "ready"
             await session.commit()
-    except Exception:
+    except Exception as exc:
         if billing is not None:
             async with factory() as session:
                 await cancel_external_call(session, billing=billing)
+        # Причина видна пользователю: документ не должен «зависать» в pending
+        # при сбое провайдера (код из ProviderError) или другом сбое записи.
+        # Отмена — отдельный сценарий: статус не меняем, задачу можно перезапустить.
+        if not isinstance(exc, JobCancelledError):
+            await _set_document_status(
+                document_id, "failed", getattr(exc, "code", None) or "INGEST_FAILED"
+            )
         raise
 
     if billing is not None:
