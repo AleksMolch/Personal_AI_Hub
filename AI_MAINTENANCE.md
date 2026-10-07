@@ -117,5 +117,8 @@ make backup
   `litellm` в `compose.yaml` и пресет `litellm_proxy`.
 - Docling/MarkItDown — только optional profiles, базовая установка без них
   обязана работать без изменений.
-- LlamaIndex — только `experiments/` (ADR-0003), в production runtime не
-  попадает.
+- LlamaIndex — только `experiments/llamaindex_rag_benchmark/` (ADR-0003), в
+  production runtime не попадает. Benchmark от 2026-10-07: recall@k (документ
+  и факт) совпадает с нативным pipeline, MRR у нативного чуть выше, индекс
+  строится ~14× дольше при на порядок больших Python-аллокациях — dependency
+  не добавлять, повторное рассмотрение только с новым ADR.

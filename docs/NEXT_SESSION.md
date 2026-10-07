@@ -158,6 +158,22 @@ make backup         # архив в backups/
       backend) и 2 integration — сквозной контур и стабильность кодов
       401/429/5xx. Integration 45→47.
 
+7c. **Итерация 5: LlamaIndex benchmark (ADR-0003) — закрыто (2026-10-07).**
+    - Создан `experiments/llamaindex_rag_benchmark/` (dataset 10 документов /
+      17 вопросов, benchmark.py, run.sh, README). LlamaIndex
+      (`llama-index-core==0.14.25`) ставится только в одноразовый контейнер,
+      в зависимости проекта не входит.
+    - Результат: recall@k (документ и факт), top-1 и отказ на неотвечаемых
+      совпадают с нативным pipeline; MRR у нативного чуть выше (0,9167 против
+      0,8988), построение индекса ~14× дольше, Python-аллокации 12,4 МБ против
+      0,13 МБ. Dependency не добавляется, переносить нечего.
+    - Decision report: `docs/IMPROVEMENTS_ASSESSMENT.md`, раздел 5.
+    - В той же сессии исправлены дефекты предыдущей: ingest помечает документ
+      failed при сбоях провайдера/разбора (`PROVIDER_ERROR`/`PARSE_FAILED`),
+      OCR рендерит только запрошенные страницы (лимит `OCR_MAX_PAGES` больше
+      не обходится диапазоном min..max), Base URL OpenRouter в примерах
+      LiteLLM. Тесты: unit 83→84, integration 47→49.
+
 8. **Этап 2 «Video»** — НЕ начинать до закрытия пунктов 1–2 (release gate).
    Далее: исследование контрактов Veo/Seedance/Kling/Sora, ADR на каждый адаптер,
    sanitized fixtures, async-generation adapters, webhook/polling, галерея, FFmpeg.
@@ -183,19 +199,22 @@ OCR, чанкинг, embeddings, Qdrant, query с цитатами + LLM-син�
 (CSV/XLSX + DuckDB read-only sandbox), релиз (README/LICENSE/notices, backup/
 restore, E2E Playwright).
 
-Текущие проверки зелёные: make test-unit (83), make test-integration (47),
+Текущие проверки зелёные: make test-unit (84), make test-integration (49),
 ruff/mypy/tsc/eslint/prettier, make test-e2e (нужен Node 20+). Стек:
 api/worker/beat/web + postgres/valkey/qdrant, запускается docker compose
 up -d --build. Опционально: make up-litellm (профиль `litellm`, ADR-0004).
+Эксперименты (не входят в зависимости): experiments/llamaindex_rag_benchmark.
 
 Твоя задача — закрытие release gate перед Этапом 2:
 1. Live-тесты (`RUN_LIVE_TESTS=1`) с реальным API-ключом и согласованным
    бюджетом: live provider certification (пункт 7) — единственный пункт,
    который нельзя закрыть без ключа пользователя.
-2. Обновить IMPROVEMENT_TASKS_FOR_CODING_AI.md: отметить закрытые Итерации
-   1–3 (счётчики 83/47), чтобы следующая сессия не переделывала их.
-3. Только после этого — Итерация 4 (Docling, DEFER) и Итерация 5 (LlamaIndex,
-   PROTOTYPE ONLY) по одной за раз.
+2. Итерации 1–5 из IMPROVEMENT_TASKS_FOR_CODING_AI.md закрыты (assessment,
+   RapidOCR, LiteLLM proxy, LlamaIndex benchmark); Итерация 4 (Docling)
+   остаётся DEFER — браться только при появлении реальной потребности в
+   сложных PDF.
+3. Перед началом Этапа 2 убедиться, что счётчики тестов совпадают с
+   фактическими (`make test-unit`, `make test-integration`).
 
 Уже закрыто в конце Итерации 2 (2026-09-21): E2E с реальными бинарниками
 poppler→tesseract (blank-скан PDF → EMPTY_DOCUMENT в статусе документа,
@@ -207,6 +226,12 @@ poppler→tesseract (blank-скан PDF → EMPTY_DOCUMENT в статусе д�
 - реальный OCR-тест на читаемой странице: фикстура PDF-из-картинки,
   «VECTORSEARCH» доезжает до чанков (integration 44→45);
 - Итерация 3: LiteLLM как внешний proxy (ADR-0004), integration 45→47.
+Закрыто 2026-10-07:
+- исправления предыдущей сессии: ingest помечает документ failed при сбоях
+  провайдера/разбора (unit 84, integration 48→49), OCR рендерит только
+  запрошенные страницы, исправлен Base URL OpenRouter в примерах LiteLLM;
+- Итерация 5: benchmark `experiments/llamaindex_rag_benchmark/` — dependency
+  не добавляется, recall@k совпадает, decision report в assessment.
 
 Обязательно (AGENTS.md): тест/критерий до кода, unit + integration + негативный
 тест, Decimal для денег, budget блокирует ДО провайдера, estimated не выдавать за

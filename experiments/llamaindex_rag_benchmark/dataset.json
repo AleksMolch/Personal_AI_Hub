@@ -1,0 +1,160 @@
+{
+  "name": "personal-ai-hub-synthetic-rag-v1",
+  "description": "Synthetic dataset for comparing the native Personal AI Hub RAG chunking/retrieval against LlamaIndex in experiments/llamaindex_rag_benchmark. Documents describe a fictional internal knowledge base; questions are phrased with overlapping but not identical vocabulary. 'expected_fact' must appear inside a retrieved chunk from 'expected_document'.",
+  "documents": [
+    {
+      "id": "vacation-policy",
+      "title": "Vacation policy (HR-101)",
+      "text": "Vacation policy HR-101. Full-time employees receive 28 calendar days of paid vacation per year. Unused vacation days can be carried over to the next calendar year, but no more than 5 days. Vacation requests must be submitted at least 14 days in advance through the HR portal. During the first year of employment, vacation entitlement is prorated monthly. Managers approve requests in the portal; if a manager is on leave, the HR business partner approves instead. Public holidays are not counted as vacation days."
+    },
+    {
+      "id": "backup-schedule",
+      "title": "Backup schedule and retention",
+      "text": "Backup schedule. Database backups run every day at 02:30 UTC. Full dumps are kept for 30 days; incremental backups are kept for 7 days. Backups are written to /data/backups and verified weekly by the restore drill. The archive is encrypted with the master key. Restore verification never runs against the production database. If the nightly backup fails twice in a row, the on-call engineer is paged automatically."
+    },
+    {
+      "id": "api-keys",
+      "title": "Provider API key handling",
+      "text": "Provider API keys are encrypted with the master key using Fernet. Keys are rotated every 90 days. The user interface shows only a masked value such as sk-****1234. Authorization headers and key contents are never written to logs. A key is decrypted only at request time and only for the provider connection that needs it. Revoked keys fail the connection test with PROVIDER_UNAUTHORIZED."
+    },
+    {
+      "id": "release-process",
+      "title": "Release process",
+      "text": "Release process. The release train departs every second Tuesday. A code freeze starts 24 hours before the departure; after the freeze only the release manager merges changes, and only with an explicit exception note. Every release must be approved by two maintainers before tagging. The staging soak period of 24 hours runs the full integration suite and the smoke scenario. Database migrations must be idempotent and are checked with alembic check in dry-run mode. If a migration cannot be rolled back, the release manager documents the forward-only plan in the release checklist. Hotfixes follow the same approval path but may skip the staging soak with a written risk note. Version numbers follow semantic versioning, and the changelog entry is mandatory for every user-visible change. Release artifacts are signed and kept for one year. The release channel in the UI shows the deployed version and the migration head. Environment promotion goes from staging to production only; feature branches are never deployed to production directly. A canary rollout sends 10 percent of traffic to the new version for two hours before the full switch. Rollback means re-deploying the previous signed image tag, and the release manager confirms that the rollback does not need a database downgrade. Feature flags are used for user-visible behavior that must be switched off quickly; the flag cleanup ticket is created in the same release. Release notes are generated from changelog entries and reviewed by the support team before publication. The on-call engineer for the release window is named in the release checklist. Builds are reproducible: the lock files are committed, and the CI job fails if the lock file changes without a matching dependency update. The artifact registry keeps the last twenty releases available for rollback. Deployments happen only during the announced window, and the deployment job refuses to start outside it unless an override reason is recorded. The release manager publishes the final release checklist to the engineering channel, including the deploy start and end timestamps, the image digest and the migration head. A failed deployment triggers an automatic return to the previous revision only when the health check fails within the first ten minutes; after that window the on-call engineer decides manually. The release window never overlaps with a scheduled security incident drill. Release metrics, including lead time and change failure rate, are reviewed in the monthly engineering retrospective."
+    },
+    {
+      "id": "incident-response",
+      "title": "Incident response guide",
+      "text": "Incident response guide. Incidents are classified from SEV1 to SEV4. A SEV1 incident is acknowledged in 5 minutes and requires an incident commander in the war room. SEV2 is acknowledged within 30 minutes. The communications lead posts updates every 30 minutes for SEV1 and every 2 hours for SEV2. A postmortem is due within 5 business days after any SEV1 or SEV2 incident, and it must list customer impact, timeline, root cause and action items with owners. On-call rotations are weekly and hand over on Monday morning. Alert fatigue is tracked as a metric, and noisy alerts are muted only with a follow-up ticket. Incident channels are archived after the postmortem and linked from the changelog. SEV3 incidents are acknowledged within one business day and handled by the owning team without a war room; SEV4 incidents are cosmetic or informational and are triaged in the regular backlog. The incident commander is responsible for the decision log, and the scribe records timestamps of every mitigation attempt. Customer-facing communication goes through the status page and the support team; support never invents an estimated recovery time without the incident commander's approval. The escalation matrix is reviewed quarterly, and the primary and secondary on-call names for the current week are published in the incident channel topic. An incident review board meets weekly to verify that action items are completed and that the same root cause does not repeat. Error budget policy: if a service burns more than half of its monthly error budget in one week, feature work for that service pauses until the incident review board approves a recovery plan. Disaster recovery drills are run twice a year and are treated as SEV1 exercises for reporting purposes. Runbooks live next to the service catalog and are linked from every alert; an alert without a runbook link is considered misconfigured."
+    },
+    {
+      "id": "onboarding",
+      "title": "Engineering onboarding plan",
+      "text": "Engineering onboarding plan. On the first day a new hire receives a laptop, accounts and a buddy assignment. The buddy is a senior engineer from the same team and stays assigned for the first 30 days. Week one covers local environment setup with make bootstrap, an architecture walkthrough and the first small pull request. The 30-day goal is independent delivery of a small feature with tests. The 60-day goal is ownership of one production service including its alerts and runbook. The 90-day goal is participation in on-call shadowing and a documented improvement proposal. Access requests go through the platform team and follow least privilege. New hires are added to the weekly engineering demo and to the release notes review. Feedback checkpoints with the manager happen at the end of each 30-day block. Security training and the secrets policy quiz are mandatory in the first two weeks. The onboarding checklist is versioned in the internal wiki and updated after every retrospective that mentions onboarding friction. Pairing sessions are scheduled twice a week during the first month; attendance is flexible but the buddy records short notes in the onboarding tracker. New hires are encouraged to ship a documentation fix in their first week because it exercises the full path from branch to release without production risk. The platform team provisions database and queue access with time-bound elevation; permanent elevation requires a written justification and is reviewed quarterly. Mentors outside the immediate team are available through the mentoring channel for career and architecture questions. A feedback form is sent at day 30, day 60 and day 90, and the aggregated results are reviewed by engineering leadership every quarter. The onboarding tracker is closed only after the new hire completes the production readiness checklist for their first on-call rotation."
+    },
+    {
+      "id": "ocr-backends",
+      "title": "OCR backends notes",
+      "text": "OCR backends. The default backend is Tesseract with languages rus and eng. RapidOCR is optional and lazy-loaded in the worker only: the backend is not imported at API start, so idle memory does not grow. The measured RapidOCR overhead is about 329 MB of image size with headless OpenCV and roughly 1.3 to 2.6 seconds per A4 page at 300 dpi. OCR recognizes at most 40 pages per document by default through OCR_MAX_PAGES. A page recognition timeout is 30 seconds. The auto mode prefers RapidOCR and falls back to Tesseract when RapidOCR is unavailable. Errors are reported as OCR_UNAVAILABLE, OCR_FAILED or OCR_TIMEOUT and are visible in the document status."
+    },
+    {
+      "id": "rag-pipeline",
+      "title": "RAG pipeline internals",
+      "text": "RAG pipeline internals. Documents are parsed into per-page text, then split into chunks of at most 2000 characters with an overlap of 200 characters. Each chunk keeps its page number, position and a sha256 checksum. Embeddings are produced through the OpenAI-compatible adapter and stored in a Qdrant collection named after the knowledge base and the embedding model version. Retrieval uses cosine similarity, and hits below the relevance threshold of 0.30 are discarded so the answer can report insufficient sources. Citations are rebuilt from the vector payload and the chunk rows: document title, page and the fragment text. The synthesis call is a regular chat completion with a strict instruction to answer only from the fragments. If no price snapshot exists for the chat model, synthesis is skipped rather than sent to the provider. Embedding calls for indexing and for queries reserve budget before the provider call and write a usage record afterwards. Reranking is not implemented, and there is no LLM check of source sufficiency beyond the cosine threshold. Collection names include a short hash of the embedding version to avoid mixing vectors from different models. Indexing runs as a background job with parse, chunk and embed stages; the job heartbeat is updated during long stages and a soft cancellation flag is checked between embedding batches. Embedding calls are batched 32 chunks per request to keep provider payloads small. The vector payload stores the document identifier, the knowledge base identifier, the page and the position so citations survive even if chunk rows are rebuilt. Query embedding is billed as a separate operation from indexing embeddings, and synthesis is billed as its own operation. The default retrieval depth is five hits before threshold filtering. Documents that produce no chunks after parsing fail with EMPTY_DOCUMENT instead of writing an empty index entry. The chunk checksum is used to detect duplicate content within a document, but deduplication across documents is intentionally out of scope for the first stage."
+    },
+    {
+      "id": "provider-pricing",
+      "title": "Provider pricing and cost accounting",
+      "text": "Provider pricing and cost accounting. Prices are stored per model as input and output cost per million tokens together with the currency. Currency conversion uses the FxRate table; if a rate for the required pair is missing, the accounting call fails with FX_RATE_MISSING instead of silently mixing currencies. A generation reserves the estimated cost before calling the provider and settles the actual cost after the response arrives. When the provider returns usage tokens the record is marked as actual; otherwise the estimate is stored and stays marked as estimated. Provider HTTP errors are normalized: 401 becomes PROVIDER_UNAUTHORIZED, 402 becomes PROVIDER_INSUFFICIENT_BALANCE, 429 becomes PROVIDER_RATE_LIMITED with retryable true, and 5xx becomes PROVIDER_ERROR. The sync-models endpoint imports pricing from the provider catalog and creates price snapshots with source 'api'; manual prices have priority and repeated syncs are idempotent. Daily and monthly budget limits are enforced with a row lock so parallel requests cannot overspend. Expired reservations are reconciled by a periodic beat task. A paid request is never retried automatically after the provider has accepted it. A price snapshot records the effective timestamp, so the accounting uses the price that was valid at request time rather than the latest edited value. Usage records store input tokens, output tokens, cached read tokens and reasoning tokens when the provider reports them, plus the provider request identifier for reconciliation with the provider dashboard. Reservation lifetime is 300 seconds; a reservation that is not settled in time is cancelled by reconciliation and its amount stops counting toward the available budget. Budget currency is fixed per user, and every recorded amount is converted into that base currency at settlement time. The estimated cost is never presented as actual in the user interface: estimated records carry an explicit marker. The monthly limit resets at the start of the calendar month in UTC, and the daily limit resets at midnight UTC. Accounting writes happen in the same transaction as the generation finalization when possible, and external calls such as embeddings settle through a separate short transaction after the provider responds."
+    },
+    {
+      "id": "litellm-proxy",
+      "title": "Optional LiteLLM proxy",
+      "text": "Optional LiteLLM proxy. The proxy is an optional compose profile named litellm and is not started by make up. It listens on port 4000 and is published only on localhost. Personal AI Hub talks to it as a regular OpenAI-compatible provider named litellm_proxy with base url http://litellm:4000/v1. The litellm python library is not installed in the backend image; the proxy runs as a separate service pinned to a fixed image tag. Budget, prices and usage records stay in Personal AI Hub. The master key protects the local gateway, and upstream keys are passed through environment variables, never committed to git. Deleting the profile and the preset fully rolls back the feature."
+    }
+  ],
+  "questions": [
+    {
+      "id": "q-vacation-days",
+      "question": "How many paid vacation days do full-time employees get each year?",
+      "expected_document": "vacation-policy",
+      "expected_fact": "28 calendar days"
+    },
+    {
+      "id": "q-vacation-carryover",
+      "question": "How many unused vacation days may be carried over?",
+      "expected_document": "vacation-policy",
+      "expected_fact": "5 days"
+    },
+    {
+      "id": "q-backup-time",
+      "question": "When do database backups run?",
+      "expected_document": "backup-schedule",
+      "expected_fact": "02:30 UTC"
+    },
+    {
+      "id": "q-backup-retention",
+      "question": "How long are full database dumps kept?",
+      "expected_document": "backup-schedule",
+      "expected_fact": "30 days"
+    },
+    {
+      "id": "q-key-rotation",
+      "question": "How often are provider API keys rotated?",
+      "expected_document": "api-keys",
+      "expected_fact": "90 days"
+    },
+    {
+      "id": "q-release-cadence",
+      "question": "How often does the release train depart?",
+      "expected_document": "release-process",
+      "expected_fact": "every second Tuesday"
+    },
+    {
+      "id": "q-release-approval",
+      "question": "How many maintainers must approve a release before tagging?",
+      "expected_document": "release-process",
+      "expected_fact": "two maintainers"
+    },
+    {
+      "id": "q-sev1-ack",
+      "question": "What is the acknowledgement target for a SEV1 incident?",
+      "expected_document": "incident-response",
+      "expected_fact": "5 minutes"
+    },
+    {
+      "id": "q-postmortem",
+      "question": "When is a postmortem due after a severe incident?",
+      "expected_document": "incident-response",
+      "expected_fact": "5 business days"
+    },
+    {
+      "id": "q-buddy",
+      "question": "Who is assigned to a new hire during onboarding?",
+      "expected_document": "onboarding",
+      "expected_fact": "buddy"
+    },
+    {
+      "id": "q-ocr-page-limit",
+      "question": "What is the maximum number of pages recognized per document by default?",
+      "expected_document": "ocr-backends",
+      "expected_fact": "40 pages"
+    },
+    {
+      "id": "q-chunking",
+      "question": "What chunk size and overlap does the RAG pipeline use?",
+      "expected_document": "rag-pipeline",
+      "expected_fact": "2000 characters"
+    },
+    {
+      "id": "q-fx-rate",
+      "question": "How are currency conversions for provider costs handled?",
+      "expected_document": "provider-pricing",
+      "expected_fact": "FxRate"
+    },
+    {
+      "id": "q-litellm-port",
+      "question": "On which port does the optional LiteLLM proxy listen?",
+      "expected_document": "litellm-proxy",
+      "expected_fact": "4000"
+    },
+    {
+      "id": "q-unanswerable-parental",
+      "question": "How many weeks of parental leave does the company provide?",
+      "expected_document": null,
+      "expected_fact": null
+    },
+    {
+      "id": "q-unanswerable-gpu",
+      "question": "How many GPU workers does the inference cluster have?",
+      "expected_document": null,
+      "expected_fact": null
+    },
+    {
+      "id": "q-unanswerable-parking",
+      "question": "How many parking spaces are reserved for employees at the office?",
+      "expected_document": null,
+      "expected_fact": null
+    }
+  ]
+}

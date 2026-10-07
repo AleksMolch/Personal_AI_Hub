@@ -126,6 +126,17 @@
       `litellm-default`
 - [ ] Live provider certification (RUN_LIVE_TESTS=1, отдельный бюджет)
 
+## Улучшения (IMPROVEMENT_TASKS_FOR_CODING_AI.md) — Итерации 1–3, 5 закрыты
+- [x] Итерация 1: assessment (`docs/IMPROVEMENTS_ASSESSMENT.md`, ADR-0002/0003)
+- [x] Итерация 2: billing для embeddings/RAG-synthesis + RapidOCR (ADR-0002)
+- [x] Итерация 3: LiteLLM как внешний proxy, профиль `litellm` (ADR-0004)
+- [x] Итерация 5: benchmark LlamaIndex в `experiments/llamaindex_rag_benchmark/`;
+      dependency не добавлена (recall@k совпадает, нативный pipeline быстрее),
+      decision report в `docs/IMPROVEMENTS_ASSESSMENT.md`
+- [ ] Итерация 4 (Docling): DEFER — только под реальную потребность в сложных PDF
+- [x] Инциденты ingest видимы: сбой провайдера/разбора переводит документ в
+      failed (`PROVIDER_ERROR`/`PARSE_FAILED`), а не оставляет в pending
+
 ## Определение готовности Этапа 1
 Чистая установка по README, health, миграции, провайдеры, streaming chat,
 бюджеты, RAG, таблицы — реализованы и покрыты unit/integration-тестами.

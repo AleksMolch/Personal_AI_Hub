@@ -49,6 +49,11 @@ tqdm (MPL-2.0 + MIT). `opencv-python` (Apache-2.0) не используется
 Dev-инструменты: pytest (MIT), pytest-asyncio (Apache-2.0), ruff (MIT),
 mypy (MIT).
 
+Экспериментальный бенчмарк (`experiments/llamaindex_rag_benchmark/`, в поставку
+не входит): llama-index-core 0.14.25 (MIT). Устанавливается только в
+одноразовый контейнер эксперимента; в backend/web-образы и runtime не попадает
+(ADR-0003).
+
 ## Frontend (Node.js)
 
 | Пакет | Версия | Лицензия |

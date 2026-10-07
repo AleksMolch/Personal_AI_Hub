@@ -700,7 +700,7 @@ Live-тесты нельзя запускать без явного соглас
 
 # 9. Рекомендуемый порядок выполнения
 
-## Статус итераций (актуально на 2026-10-05)
+## Статус итераций (актуально на 2026-10-07)
 
 | Итерация | Решение | Где зафиксировано |
 | --- | --- | --- |
@@ -708,12 +708,16 @@ Live-тесты нельзя запускать без явного соглас
 | 2 — RapidOCR (+ закрытие находок 0.7: billing gap, ошибки OCR, OCR-фикстуры) | ✅ закрыто | ADR-0002, `docs/NEXT_SESSION.md` п. 7 |
 | 3 — LiteLLM prototype | ✅ закрыто (вариант A, внешний proxy) | ADR-0004, `docs/NEXT_SESSION.md` п. 7b |
 | 4 — Docling enhanced parser | ⏸ DEFER, по одной задаче за раз | `docs/IMPROVEMENTS_ASSESSMENT.md` |
-| 5 — LlamaIndex benchmark | ⏸ PROTOTYPE ONLY, `experiments/` | ADR-0003 |
+| 5 — LlamaIndex benchmark | ✅ закрыто (PROTOTYPE ONLY, production не затронут) | `experiments/llamaindex_rag_benchmark/`, decision report в `docs/IMPROVEMENTS_ASSESSMENT.md` |
 
-Зелёные проверки после Итерации 3: unit 83, integration 47, ruff, mypy
-(66 файлов), tsc/eslint/prettier, `make smoke` (ready/version/alembic 0007
-head/worker pong). Live provider certification (`RUN_LIVE_TESTS=1`) — единственный
-пункт, который нельзя закрыть без реального ключа и бюджета пользователя.
+Зелёные проверки после Итерации 5 (2026-10-07): unit 84, integration 49, ruff,
+mypy (66 файлов), tsc/eslint/prettier, `make smoke` (ready/version/alembic 0007
+head/worker pong). Дополнительно исправлены дефекты предыдущей сессии: ingest
+теперь помечает документ failed при сбоях провайдера/разбора (а не оставляет
+pending), OCR рендерит только запрошенные страницы (без лишнего расхода RAM),
+исправлен Base URL OpenRouter в примерах LiteLLM. Live provider certification
+(`RUN_LIVE_TESTS=1`) — единственный пункт, который нельзя закрыть без реального
+ключа и бюджета пользователя.
 
 ## Итерация 1 — assessment only
 - Выполнить задачи 0.1–0.3.
@@ -737,6 +741,14 @@ head/worker pong). Live provider certification (`RUN_LIVE_TESTS=1`) — един
 
 ## Итерация 5 — LlamaIndex benchmark
 Только experiments/evaluation. Не production.
+
+Факт (2026-10-07): создан `experiments/llamaindex_rag_benchmark/` (dataset +
+benchmark + run.sh + README), LlamaIndex ставится только в одноразовый контейнер.
+Результат: на синтетическом корпусе recall@k и top-1 совпадают с нативным
+pipeline, MRR у нативного чуть выше, при этом LlamaIndex строит индекс ~14 раз
+дольше и расходует на порядок больше Python-аллокаций. Вывод: dependency не
+добавляется, улучшения переносить нечего; decision report — в
+`docs/IMPROVEMENTS_ASSESSMENT.md` (раздел 5).
 
 ---
 
