@@ -5,7 +5,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 PYTHON := python3
 
-.PHONY: help bootstrap up down status logs lint typecheck test test-unit test-integration test-e2e smoke backup restore migrate-check migrate health doctor up-litellm down-litellm
+.PHONY: help bootstrap up down status logs lint typecheck test test-unit test-integration test-live test-e2e smoke backup restore migrate-check migrate health doctor up-litellm down-litellm
 
 help: ## Список команд
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -69,6 +69,20 @@ test-unit: ## Быстрые тесты без инфраструктуры
 test-integration: ## Интеграционные тесты (изолированная инфраструктура)
 	@docker compose build api
 	@docker compose -f compose.yaml -f infra/compose/test.yaml run --rm test
+
+test-live: ## Live-тесты реального провайдера (RUN_LIVE_TESTS=1 + LIVE_TEST_BUDGET)
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+	: "$${LIVE_TEST_BUDGET:?Задайте LIVE_TEST_BUDGET в USD (например 0.05)}"; \
+	RUN_LIVE_TESTS=1 docker run --rm -v "$$PWD":/work -w /work \
+		-e PYTHONPATH=/work/packages/core:/work/apps/api:/work/apps \
+		-e RUN_LIVE_TESTS \
+		-e LIVE_TEST_BUDGET \
+		-e LIVE_PROVIDER_TYPE \
+		-e LIVE_PROVIDER_BASE_URL \
+		-e LIVE_PROVIDER_API_KEY \
+		-e LIVE_CHAT_MODEL \
+		-e LIVE_EMBEDDING_MODEL \
+		python:3.12-slim sh -c "pip install -q -r apps/api/requirements-dev.txt && pytest tests/live -q"
 
 test-e2e: ## E2E Playwright (требует запущенный стек и admin/supersecret123)
 	@cd apps/web && npx playwright test

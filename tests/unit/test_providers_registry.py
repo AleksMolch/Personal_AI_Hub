@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import pytest
-
 from personal_hub.providers.presets import PRESETS, get_preset
 from personal_hub.providers.registry import SUPPORTED_PROVIDER_TYPES, get_adapter
 
@@ -56,3 +55,16 @@ def test_adapter_resolves_for_supported_types() -> None:
 def test_adapter_unknown_type_raises() -> None:
     with pytest.raises(ValueError):
         get_adapter("not_a_real_type")
+
+
+def test_provider_connection_repr_hides_api_key() -> None:
+    """repr соединения не раскрывает ключ (иначе он утекает в логи/вывод тестов)."""
+    from personal_hub.providers.base import ProviderConnection
+
+    connection = ProviderConnection(
+        provider_type="openai_compatible",
+        base_url="http://example.invalid",
+        api_key="sk-super-secret-key",
+    )
+    assert "sk-super-secret-key" not in repr(connection)
+    assert connection.api_key == "sk-super-secret-key"

@@ -29,11 +29,15 @@ class Capability(StrEnum):
 
 @dataclass(frozen=True)
 class ProviderConnection:
-    """Соединение к провайдеру: base URL и расшифрованный ключ."""
+    """Соединение к провайдеру: base URL и расшифрованный ключ.
+
+    `api_key` исключён из repr: соединение попадает в отладочный вывод и
+    сообщения об ошибках, а ключ не должен утекать в логи.
+    """
 
     provider_type: str
     base_url: str
-    api_key: str
+    api_key: str = field(repr=False)
 
 
 @dataclass
