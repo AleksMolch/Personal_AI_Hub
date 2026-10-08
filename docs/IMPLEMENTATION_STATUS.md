@@ -160,8 +160,9 @@
 Чистая установка по README, health, миграции, провайдеры, streaming chat,
 бюджеты, RAG, таблицы — реализованы и покрыты unit/integration-тестами.
 Windows clean install закрыт (2026-09-16), live provider certification закрыт
-(2026-10-07). Из известных ограничений остаётся host-E2E Playwright при Node <20
-(см. `docs/WINDOWS_HANDOFF.md`); оно не блокирует локальный запуск.
+(2026-10-07), host-E2E Playwright подтверждён на macOS (2026-10-07, Node 24:
+вход + навигация по всем разделам, 1 passed). Ограничение host-E2E остаётся
+только для Windows-хостов с Node <20 (см. `docs/WINDOWS_HANDOFF.md`).
 
 ## Нефункциональные требования (частично)
 - [x] Логи без секретов (redaction ключей в JSON-форматере)

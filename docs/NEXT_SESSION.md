@@ -212,7 +212,8 @@ OCR, чанкинг, embeddings, Qdrant, query с цитатами + LLM-син�
 restore, E2E Playwright).
 
 Текущие проверки зелёные: make test-unit (94), make test-integration (56),
-ruff/mypy/tsc/eslint/prettier, make test-e2e (нужен Node 20+). Стек:
+ruff/mypy/tsc/eslint/prettier, make test-e2e (зелёный на macOS/Node 24;
+на Windows нужен Node 20+). Стек:
 api/worker/beat/web + postgres/valkey/qdrant, запускается docker compose
 up -d --build. Опционально: make up-litellm (профиль `litellm`, ADR-0004).
 Эксперименты (не входят в зависимости): experiments/llamaindex_rag_benchmark.
@@ -243,8 +244,11 @@ poppler→tesseract (blank-скан PDF → EMPTY_DOCUMENT в статусе д�
 - Итерация 5: benchmark `experiments/llamaindex_rag_benchmark/` — dependency
   не добавляется, recall@k совпадает, decision report в assessment;
 - Live provider certification: `tests/live/` + `make test-live`, реальный
-  `api.teamorouter.com` (`deepseek-v4-flash-free`): 3 passed / 1 skipped
-  (embeddings у провайдера нет), бюджет не израсходован.
+  `api.teamorouter.com` (`deepseek-v4-flash-free`) и DeepSeek Platform
+  (`deepseek-flash`): 3 passed / 1 skipped (эмбеддингов нет), бюджет не
+  израсходован;
+- host-E2E Playwright подтверждён на macOS (Node 24): вход + навигация по всем
+  разделам, 1 passed (на Windows по-прежнему нужен Node 20+).
 
 Обязательно (AGENTS.md): тест/критерий до кода, unit + integration + негативный
 тест, Decimal для денег, budget блокирует ДО провайдера, estimated не выдавать за
