@@ -9,8 +9,15 @@ streaming; эмбеддинги (если задана модель). Все п�
 """
 from __future__ import annotations
 
+import os
+
 import pytest
 from personal_hub.providers.base import ChatMessage, ChatRequest
+
+# Лимит вывода настраивается: reasoning-моделям (например, DeepSeek Flash)
+# нужно больше 8 токенов, иначе весь бюджет уходит на reasoning_tokens и
+# видимого текста не остаётся.
+MAX_TOKENS = int(os.getenv("LIVE_MAX_TOKENS", "256"))
 
 # Один и тот же минимальный промпт: цена ответа ограничена max_tokens.
 CHAT_PROMPT = "Ответь одним словом: ok"
@@ -20,7 +27,7 @@ def _chat_request(model: str) -> ChatRequest:
     return ChatRequest(
         model=model,
         messages=[ChatMessage(role="user", content=CHAT_PROMPT)],
-        max_tokens=8,
+        max_tokens=MAX_TOKENS,
     )
 
 

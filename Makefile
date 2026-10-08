@@ -82,6 +82,7 @@ test-live: ## Live-тесты реального провайдера (RUN_LIVE_
 		-e LIVE_PROVIDER_API_KEY \
 		-e LIVE_CHAT_MODEL \
 		-e LIVE_EMBEDDING_MODEL \
+		-e LIVE_MAX_TOKENS \
 		python:3.12-slim sh -c "pip install -q -r apps/api/requirements-dev.txt && pytest tests/live -q"
 
 test-e2e: ## E2E Playwright (требует запущенный стек и admin/supersecret123)

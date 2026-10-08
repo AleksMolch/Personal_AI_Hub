@@ -89,12 +89,13 @@ make backup         # архив в backups/
 
 7. ✅ **Live provider certification — закрыто 2026-10-07.** Каркас
    `tests/live/` + `make test-live` (по умолчанию выключен, бюджет-гард
-   `LIVE_TEST_BUDGET`, ключи только из `.env`). Реальный провайдер
-   `api.teamorouter.com/v1` (`openai_compatible`), free-модель
-   `deepseek-v4-flash-free`: health (49 моделей), непотоковый чат с actual
-   usage и streaming — зелёные; embedding-моделей у провайдера нет (skip).
-   Бюджет 0.5 USD не израсходован. Побочно: `ProviderConnection.api_key`
-   исключён из repr (pytest печатал фикстуру с ключом при падении).
+   `LIVE_TEST_BUDGET`, ключи только из `.env`). Сертифицированы
+   `api.teamorouter.com/v1` (`deepseek-v4-flash-free`) и официальный DeepSeek
+   Platform `api.deepseek.com/v1` (`deepseek-flash`): health, непотоковый чат
+   с actual usage, streaming — зелёные; embedding-моделей нет (skip).
+   Reasoning-моделям нужен `LIVE_MAX_TOKENS` (по умолчанию 256). Побочно:
+   `ProviderConnection.api_key` исключён из repr (pytest печатал фикстуру
+   с ключом при падении).
 
 7.5. ✅ **Улучшения (IMPROVEMENT_TASKS_FOR_CODING_AI.md) — Итерация 1
    (assessment) и Итерация 2 ЗАВЕРШЕНЫ 2026-09-21.** Созданы

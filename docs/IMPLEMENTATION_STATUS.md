@@ -125,11 +125,13 @@
       — контейнер healthy, `/health/liveliness` → 200, `/v1/models` →
       `litellm-default`
 - [x] Live provider certification (2026-10-07): каркас `tests/live/` +
-      `make test-live` (по умолчанию выключен, бюджет-гард). Реальный провайдер
-      `api.teamorouter.com/v1` (`openai_compatible`), free-модель
-      `deepseek-v4-flash-free`: health (49 моделей), непотоковый чат с actual
-      usage, streaming — зелёные; embedding-моделей у провайдера нет (тест
-      пропущен). Бюджет 0.5 USD не израсходован (free-модель). Побочно закрыта
+      `make test-live` (по умолчанию выключен, бюджет-гард). Сертифицированы
+      два провайдера: `api.teamorouter.com/v1` с free-моделью
+      `deepseek-v4-flash-free` (49 моделей) и официальный DeepSeek Platform
+      `api.deepseek.com/v1` с `deepseek-flash`: health, непотоковый чат с actual
+      usage и streaming — зелёные; embedding-моделей нет (тест пропущен).
+      Reasoning-моделям нужен запас токенов (`LIVE_MAX_TOKENS`, по умолчанию
+      256), иначе весь вывод уходит в `reasoning_tokens`. Побочно закрыта
       утечка ключа: `ProviderConnection.api_key` исключён из repr.
 
 ## Улучшения (IMPROVEMENT_TASKS_FOR_CODING_AI.md) — Итерации 1–3, 5 закрыты

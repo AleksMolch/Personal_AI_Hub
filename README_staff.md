@@ -170,7 +170,10 @@ LIVE_TEST_BUDGET=0.05 make test-live
 - `LIVE_PROVIDER_API_KEY` — ключ провайдера (в логах не появляется);
 - `LIVE_PROVIDER_TYPE` (по умолчанию `openrouter`) и `LIVE_PROVIDER_BASE_URL`
   (если у типа нет пресета);
-- `LIVE_CHAT_MODEL` — дешёвая модель; `LIVE_EMBEDDING_MODEL` — для эмбеддингов.
+- `LIVE_CHAT_MODEL` — дешёвая модель; `LIVE_EMBEDDING_MODEL` — для эмбеддингов;
+- `LIVE_MAX_TOKENS` — лимит вывода (по умолчанию 256). Reasoning-моделям
+  (DeepSeek Flash и подобным) 8 токенов не хватает: весь бюджет уходит в
+  `reasoning_tokens`, и видимого текста не остаётся.
 
 Пояснения:
 - Бюджет проверяется ДО каждого платного вызова и списывается после по
