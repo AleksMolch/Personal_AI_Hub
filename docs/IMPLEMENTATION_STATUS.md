@@ -141,6 +141,12 @@
       (`BUDGET_EXCEEDED`/`FX_RATE_MISSING`) видны в статусе документа; при
       сбое после оплаченных батчей расход финализируется, а не теряется;
       actual usage провайдера (embeddings/chat) пишется в UsageRecord
+- [x] Минорный проход по ревью: частичный сбой OCR-страниц → документ `ready`
+      + `OCR_PARTIAL` (коды страниц в warnings задачи), полный отказ → `failed`;
+      `OCR_MAX_PAGES=0` отключает OCR (`OCR_DISABLED`), пиксельный лимит
+      `OCR_MAX_IMAGE_PIXELS` проверяется до декодирования (`OCR_IMAGE_TOO_LARGE`);
+      RAG-ответ отдаёт `answer_skipped_reason` (UI объясняет пустой answer);
+      контракт streaming через `litellm_proxy` покрыт тестом
 
 ## Определение готовности Этапа 1
 Чистая установка по README, health, миграции, провайдеры, streaming chat,

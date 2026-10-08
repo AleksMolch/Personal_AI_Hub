@@ -111,6 +111,10 @@ make backup
   размера; Tesseract-путь не удалять. `OCR_BACKEND=tesseract` — полный rollback.
   Установка только с `opencv-python-headless` (без `libgl1`): прирост образа
   +329 МБ против +665 МБ с mesa, порядок pip — в `README_staff.md`.
+- OCR-лимиты: `OCR_MAX_PAGES=0` отключает OCR целиком; пиксельный лимит
+  `OCR_MAX_IMAGE_PIXELS` проверяется до декодирования (`OCR_IMAGE_TOO_LARGE`);
+  частичный сбой страниц даёт `OCR_PARTIAL` и индексацию успешных страниц,
+  полный отказ — `failed` с кодом страницы.
 - LiteLLM — только внешний proxy (ADR-0004), compose-профиль `litellm`
   (`make up-litellm`). Библиотеку `litellm` в backend не ставить: измерено
   +355 МБ образа и +178 МБ RSS на импорт. Точки интеграции — сервис
