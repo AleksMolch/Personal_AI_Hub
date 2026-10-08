@@ -109,6 +109,47 @@ def test_unknown_backend_raises_value_error(monkeypatch) -> None:
         get_ocr_backend()
 
 
+def test_max_pages_zero_disables_pdf_ocr(monkeypatch) -> None:
+    """OCR_MAX_PAGES=0 отключает OCR: рендер страниц не вызывается."""
+    monkeypatch.setattr(_settings(), "ocr_max_pages", 0)
+
+    import pdf2image
+
+    def _must_not_render(*args, **kwargs):
+        raise AssertionError("рендер не должен вызываться при OCR_MAX_PAGES=0")
+
+    monkeypatch.setattr(pdf2image, "convert_from_bytes", _must_not_render)
+    result = ocr_pdf_pages(b"fake pdf bytes", [1, 2])
+    assert result.texts == {}
+    assert result.failed == {}
+
+
+def test_image_ocr_disabled_when_max_pages_zero(monkeypatch) -> None:
+    """При OCR_MAX_PAGES=0 изображения не распознаются (OCR_DISABLED)."""
+    monkeypatch.setattr(_settings(), "ocr_max_pages", 0)
+    buf = io.BytesIO()
+    Image.new("RGB", (20, 20), "white").save(buf, format="PNG")
+
+    with pytest.raises(OcrError) as exc_info:
+        parse_document("photo.png", "image/png", buf.getvalue())
+    assert exc_info.value.code == "OCR_DISABLED"
+
+
+def test_image_pixel_cap_rejects_huge_image(monkeypatch) -> None:
+    """Пиксельный лимит срабатывает до декодирования (защита от bomb)."""
+    monkeypatch.setattr(_settings(), "ocr_max_image_pixels", 100)
+    buf = io.BytesIO()
+    Image.new("RGB", (20, 20), "white").save(buf, format="PNG")
+    monkeypatch.setattr(
+        "personal_hub.ocr.recognize_image",
+        lambda *args, **kwargs: pytest.fail("recognize_image не должен вызываться"),
+    )
+
+    with pytest.raises(OcrError) as exc_info:
+        parse_document("photo.png", "image/png", buf.getvalue())
+    assert exc_info.value.code == "OCR_IMAGE_TOO_LARGE"
+
+
 def test_recognize_image_uses_backend_and_downscales(monkeypatch) -> None:
     monkeypatch.setattr(_settings(), "ocr_max_image_side", 3500)
     backend = _FakeBackend(text="HELLO OCR")
@@ -155,8 +196,9 @@ def test_ocr_pdf_pages_respects_max_pages(monkeypatch) -> None:
     monkeypatch.setattr("personal_hub.ocr.parse_languages", lambda value: ["rus", "eng"])
 
     result = ocr_pdf_pages(b"fake pdf bytes", [1, 2, 3, 4, 5])
-    assert set(result.keys()) == {1, 2, 3}
-    assert all(result[k] == "PAGE TEXT" for k in result)
+    assert set(result.texts.keys()) == {1, 2, 3}
+    assert all(result.texts[k] == "PAGE TEXT" for k in result.texts)
+    assert result.failed == {}
 
 
 def test_ocr_pdf_pages_renders_only_requested_pages(monkeypatch) -> None:
@@ -188,7 +230,7 @@ def test_ocr_pdf_pages_renders_only_requested_pages(monkeypatch) -> None:
     for first, last in calls:
         rendered.update(range(first, last + 1))
     assert rendered == {1, 500}
-    assert set(result) == {1, 500}
+    assert set(result.texts) == {1, 500}
 
 
 def test_parse_image_document(monkeypatch) -> None:
@@ -202,7 +244,71 @@ def test_parse_image_document(monkeypatch) -> None:
         "personal_hub.ocr.recognize_image",
         lambda image, languages: OcrResult(text="IMG TEXT", warnings=[]),
     )
-    pages = parse_document("photo.png", "image/png", buf.getvalue())
-    assert len(pages) == 1
-    assert pages[0].page == 1
-    assert pages[0].text == "IMG TEXT"
+    document = parse_document("photo.png", "image/png", buf.getvalue())
+    assert len(document.pages) == 1
+    assert document.pages[0].page == 1
+    assert document.pages[0].text == "IMG TEXT"
+    assert document.warnings == []
+
+
+def test_ocr_pdf_pages_partial_failure_keeps_good_pages(monkeypatch) -> None:
+    """Сбой одной страницы не отменяет распознавание остальных."""
+    monkeypatch.setattr(_settings(), "ocr_max_pages", 10)
+    monkeypatch.setattr(_settings(), "ocr_languages", "rus,eng")
+
+    import pdf2image
+
+    def _fake_convert(data, first_page=None, last_page=None, **kwargs):
+        count = (last_page or 1) - (first_page or 1) + 1
+        return [Image.new("RGB", (10, 10), "white") for _ in range(count)]
+
+    monkeypatch.setattr(pdf2image, "convert_from_bytes", _fake_convert)
+    calls = {"n": 0}
+
+    class _FlakyBackend:
+        name = "flaky"
+
+        def is_available(self) -> bool:
+            return True
+
+        def recognize(self, image, languages: list[str]) -> OcrResult:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise OcrError("OCR_TIMEOUT", "таймаут страницы")
+            return OcrResult(text="PAGE TEXT")
+
+    monkeypatch.setattr("personal_hub.ocr.get_ocr_backend", lambda: _FlakyBackend())
+    monkeypatch.setattr("personal_hub.ocr.parse_languages", lambda value: ["rus", "eng"])
+
+    result = ocr_pdf_pages(b"fake pdf bytes", [1, 2])
+    assert result.texts == {2: "PAGE TEXT"}
+    assert result.failed == {1: "OCR_TIMEOUT"}
+
+
+def test_ocr_pdf_pages_all_failed_raises(monkeypatch) -> None:
+    """Если ни одна страница не распознана — ошибка не прячется."""
+    monkeypatch.setattr(_settings(), "ocr_max_pages", 10)
+    monkeypatch.setattr(_settings(), "ocr_languages", "rus,eng")
+
+    import pdf2image
+
+    def _fake_convert(data, first_page=None, last_page=None, **kwargs):
+        return [Image.new("RGB", (10, 10), "white")]
+
+    monkeypatch.setattr(pdf2image, "convert_from_bytes", _fake_convert)
+
+    class _BrokenBackend:
+        name = "broken"
+
+        def is_available(self) -> bool:
+            return True
+
+        def recognize(self, image, languages: list[str]) -> OcrResult:
+            raise OcrError("OCR_FAILED", "движок сломан")
+
+    monkeypatch.setattr("personal_hub.ocr.get_ocr_backend", lambda: _BrokenBackend())
+    monkeypatch.setattr("personal_hub.ocr.parse_languages", lambda value: ["rus", "eng"])
+
+    with pytest.raises(OcrError) as exc_info:
+        ocr_pdf_pages(b"fake pdf bytes", [1])
+    assert exc_info.value.code == "OCR_FAILED"

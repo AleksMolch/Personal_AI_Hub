@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -47,11 +48,14 @@ class Settings(BaseSettings):
     ocr_backend: str = "tesseract"
     ocr_languages: str = "rus,eng"
     # Максимум страниц PDF, распознаваемых за одну задачу индексации.
-    ocr_max_pages: int = 40
+    # 0 — OCR полностью отключён (сканы и изображения не распознаются).
+    ocr_max_pages: int = Field(default=40, ge=0)
     # Максимальная сторона изображения до OCR (предварительное уменьшение).
-    ocr_max_image_side: int = 3500
-    # Таймаут распознавания одной страницы, секунд.
-    ocr_page_timeout_seconds: float = 30.0
+    ocr_max_image_side: int = Field(default=3500, gt=0)
+    # Максимум пикселей изображения; проверяется до декодирования (bomb-guard).
+    ocr_max_image_pixels: int = Field(default=50_000_000, gt=0)
+    # Таймаут распознавания одной страницы, секунд; 0 недопустим.
+    ocr_page_timeout_seconds: float = Field(default=30.0, gt=0)
 
     # Логирование и тесты.
     log_level: str = "INFO"

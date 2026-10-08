@@ -191,6 +191,7 @@ export interface Citation {
 export interface QueryResult {
   sufficient: boolean;
   answer: string | null;
+  answer_skipped_reason: string | null;
   citations: Citation[];
 }
 

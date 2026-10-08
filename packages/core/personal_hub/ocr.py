@@ -18,6 +18,7 @@ Tesseract-путь сохраняет поведение, RapidOCR добавл�
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from personal_hub.config import get_settings
@@ -33,6 +34,19 @@ class OcrError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+@dataclass
+class OcrPagesResult:
+    """Результат OCR страниц PDF: тексты и коды неудачных страниц.
+
+    `texts` — распознанный текст по номеру страницы (1-based); `failed` —
+    страницы, которые не удалось распознать, с их стабильным кодом. Сбой
+    отдельной страницы не отменяет остальные (частичная индексация).
+    """
+
+    texts: dict[int, str]
+    failed: dict[int, str]
 
 
 class OcrResult:
@@ -242,20 +256,24 @@ def _contiguous_runs(pages: list[int]) -> list[tuple[int, int]]:
     return runs
 
 
-def ocr_pdf_pages(data: bytes, page_indices: list[int]) -> dict[int, str]:
-    """Распознаёт пустые страницы PDF-скана; возвращает {page_num: text}.
+def ocr_pdf_pages(data: bytes, page_indices: list[int]) -> OcrPagesResult:
+    """Распознаёт пустые страницы PDF-скана; возвращает тексты и сбои.
 
-    Ограничения: распознаётся не более `OCR_MAX_PAGES` страниц. Рендер идёт
-    только по запрошенным страницам; разрозненные номера рендерятся отдельными
-    диапазонами, чтобы не грузить в RAM сотни ненужных страниц. Ошибки OCR
-    не проглатываются: поднимается OcrError, чтобы задача индексации получила
-    видимый code.
+    Ограничения: не более `OCR_MAX_PAGES` страниц (`0` — OCR отключён). Рендер
+    идёт только по запрошенным страницам, разрозненные номера рендерятся
+    отдельными диапазонами, чтобы не грузить в RAM сотни ненужных страниц.
+    Сбой отдельной страницы не проглатывается: её код попадает в `failed`,
+    а остальные страницы индексируются; если не распознана ни одна страница,
+    поднимается первая ошибка (документ получает видимый код).
     """
     settings = get_settings()
+    if settings.ocr_max_pages == 0:
+        # OCR отключён явно: страницы-сканы не распознаются, рендер не запускаем.
+        return OcrPagesResult(texts={}, failed={})
     ordered = sorted(set(page_indices))
-    limited = ordered[: settings.ocr_max_pages] if settings.ocr_max_pages else ordered
+    limited = ordered[: settings.ocr_max_pages]
     if not limited:
-        return {}
+        return OcrPagesResult(texts={}, failed={})
 
     try:
         from pdf2image import convert_from_bytes
@@ -267,7 +285,9 @@ def ocr_pdf_pages(data: bytes, page_indices: list[int]) -> dict[int, str]:
     backend = get_ocr_backend()
     languages = parse_languages(settings.ocr_languages)
     requested = set(limited)
-    result: dict[int, str] = {}
+    texts: dict[int, str] = {}
+    failed: dict[int, str] = {}
+    first_error: OcrError | None = None
     for run_start, run_end in _contiguous_runs(limited):
         try:
             images = convert_from_bytes(data, first_page=run_start, last_page=run_end)
@@ -279,7 +299,18 @@ def ocr_pdf_pages(data: bytes, page_indices: list[int]) -> dict[int, str]:
             page_num = run_start + offset
             if page_num not in requested:
                 continue
-            text = recognize_image(image, languages, backend=backend)
+            try:
+                text = recognize_image(image, languages, backend=backend)
+            except OcrError as exc:
+                # Частичная деградация: код страницы виден в failed, остальные
+                # страницы продолжают индексироваться.
+                failed[page_num] = exc.code
+                if first_error is None:
+                    first_error = exc
+                continue
             if text.text:
-                result[page_num] = text.text
-    return result
+                texts[page_num] = text.text
+    if first_error is not None and not texts:
+        # Ни одна страница не распознана: ошибку не прячем.
+        raise first_error
+    return OcrPagesResult(texts=texts, failed=failed)

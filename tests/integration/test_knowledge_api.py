@@ -111,13 +111,14 @@ async def _usage_operations() -> set[str]:
         return {r.units_json.get("operation") for r in records if r.units_json}
 
 
-def _blank_pdf() -> bytes:
+def _blank_pdf(pages: int = 1) -> bytes:
     """PDF-«скан» без текстового слоя (пустые страницы)."""
     from pypdf import PdfWriter
 
     buf = io.BytesIO()
     writer = PdfWriter()
-    writer.add_blank_page(width=595, height=842)
+    for _ in range(pages):
+        writer.add_blank_page(width=595, height=842)
     writer.write(buf)
     return buf.getvalue()
 
@@ -296,6 +297,8 @@ async def test_synthesis_skipped_without_price(client: AsyncClient, mock_provide
     result = query.json()
     assert result["sufficient"] is True
     assert result["answer"] is None
+    # Причина пропуска синтеза видна клиенту, а не теряется в тишине.
+    assert result["answer_skipped_reason"] == "price_missing"
 
 
 async def test_rag_billing_records_usage(
@@ -742,6 +745,66 @@ async def test_ingest_budget_exceeded_marks_document_failed(
     document = detail.json()["documents"][0]
     assert document["status"] == "failed"
     assert document["error_code"] == "BUDGET_EXCEEDED"
+
+
+async def test_partial_ocr_marks_document_with_warning(
+    client: AsyncClient, mock_provider, monkeypatch
+) -> None:
+    """Сбой одной OCR-страницы: остальные индексируются, документ ready + код.
+
+    Полный отказ (ни одна страница) остаётся failed (см. соседний тест), но
+    единичный сбой страницы не должен терять весь документ: он виден как
+    error_code=OCR_PARTIAL, а успешные страницы попадают в индекс.
+    """
+    headers = await _bootstrap(client)
+    model_id = await _model_id(client, headers, mock_provider)
+    mock_provider.spec["POST /embeddings"] = _embedding_handler
+    await _set_price(client, headers, model_id)
+
+    calls = {"n": 0}
+
+    class _FlakyOcr:
+        name = "flaky-ocr"
+
+        def is_available(self) -> bool:
+            return True
+
+        def recognize(self, image, languages: list[str]) -> OcrResult:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise OcrError("OCR_TIMEOUT", "таймаут страницы")
+            return OcrResult(text="scan only content")
+
+    monkeypatch.setattr("personal_hub.ocr.get_ocr_backend", lambda: _FlakyOcr())
+
+    kb = await client.post(
+        "/api/v1/knowledge-bases",
+        json={"name": "Scans", "embedding_model_profile_id": model_id},
+        headers=headers,
+    )
+    kb_id = kb.json()["id"]
+
+    resp = await client.post(
+        f"/api/v1/knowledge-bases/{kb_id}/documents",
+        headers=headers,
+        files={"file": ("scan.pdf", _blank_pdf(2), "application/pdf")},
+    )
+    job_id = resp.json()["job_id"]
+    await execute_job(uuid.UUID(job_id))
+
+    detail = await client.get(f"/api/v1/knowledge-bases/{kb_id}", headers=headers)
+    document = detail.json()["documents"][0]
+    assert document["status"] == "ready"
+    assert document["error_code"] == "OCR_PARTIAL"
+
+    from personal_hub.models import Job
+
+    factory = get_session_factory()
+    async with factory() as session:
+        job = await session.get(Job, uuid.UUID(job_id))
+        assert job is not None
+        assert job.status == "completed"
+        assert job.output_json["warnings"] == ["OCR_TIMEOUT (стр. 1)"]
 
 
 async def test_external_calls_settle_actual_usage(

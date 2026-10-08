@@ -133,7 +133,7 @@ async def ingest_document(job_id: uuid.UUID) -> dict:
         data = b"".join([c async for c in store.open(asset_key)])
         # parse_document — синхронная функция; вызываем через to_thread, чтобы
         # не блокировать event loop при pdf2image/OCR на тяжёлых документах.
-        pages = await asyncio.to_thread(parse_document, asset_filename, asset_mime, data)
+        parsed = await asyncio.to_thread(parse_document, asset_filename, asset_mime, data)
     except Exception as exc:
         # UnsupportedFormatError/OcrError несут готовый code; битый файл
         # (UnidentifiedImageError, PdfReadError) сводим к PARSE_FAILED, чтобы
@@ -143,7 +143,7 @@ async def ingest_document(job_id: uuid.UUID) -> dict:
         )
         raise
 
-    chunks = chunk_document(pages)
+    chunks = chunk_document(parsed.pages)
     if not chunks:
         await _set_document_status(document_id, "failed", "EMPTY_DOCUMENT")
         raise ValueError("документ не содержит текста")
@@ -229,6 +229,9 @@ async def ingest_document(job_id: uuid.UUID) -> dict:
             document = await session.get(Document, document_id)
             if document is not None:
                 document.status = "ready"
+                # Частичный OCR (часть страниц не распознана) виден в error_code,
+                # при полном успехе код очищается.
+                document.error_code = "OCR_PARTIAL" if parsed.warnings else None
             await session.commit()
     except Exception as exc:
         if billing is not None:
@@ -272,7 +275,11 @@ async def ingest_document(job_id: uuid.UUID) -> dict:
                 usage=usage_totals or None,
             )
 
-    return {"chunks": len(chunks), "document_id": str(document_id)}
+    return {
+        "chunks": len(chunks),
+        "document_id": str(document_id),
+        "warnings": parsed.warnings,
+    }
 
 
 async def delete_document(job_id: uuid.UUID) -> dict:

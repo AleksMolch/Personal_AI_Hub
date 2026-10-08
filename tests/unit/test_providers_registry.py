@@ -23,12 +23,19 @@ def test_litellm_proxy_preset_is_optional_openai_compatible() -> None:
     assert get_adapter("litellm_proxy") is get_adapter("openai_compatible")
 
 
-def test_litellm_is_not_part_of_default_extras() -> None:
-    """Никаких тяжёлых зависимостей: LiteLLM не должен быть в core-пакете."""
-    import importlib.util
+def test_litellm_not_in_project_requirements() -> None:
+    """LiteLLM не ставится в backend: только внешний proxy (ADR-0004).
 
-    # Библиотека litellm в backend не ставится (только внешний proxy-сервис).
-    assert importlib.util.find_spec("litellm") is None
+    Проверяем сам факт отсутствия зависимости в requirements, а не состояние
+    текущего Python-окружения (иначе тест ложно падал бы у разработчика,
+    который поставил litellm локально для экспериментов).
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    for name in ("apps/api/requirements.txt", "apps/api/requirements-dev.txt"):
+        contents = (root / name).read_text(encoding="utf-8").lower()
+        assert "litellm" not in contents
 
 
 def test_presets_have_no_secrets() -> None:

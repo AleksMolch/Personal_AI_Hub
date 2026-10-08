@@ -327,12 +327,18 @@ async def query_knowledge_base(
         )
 
     answer: str | None = None
+    answer_skipped_reason: str | None = None
     if citations and payload.chat_model_profile_id is not None:
-        answer = await _synthesize(
+        answer, answer_skipped_reason = await _synthesize(
             session, user, payload.chat_model_profile_id, payload.text, citations
         )
 
-    return QueryResult(sufficient=bool(citations), answer=answer, citations=citations)
+    return QueryResult(
+        sufficient=bool(citations),
+        answer=answer,
+        answer_skipped_reason=answer_skipped_reason,
+        citations=citations,
+    )
 
 
 async def _synthesize(
@@ -341,23 +347,25 @@ async def _synthesize(
     chat_model_profile_id: uuid.UUID,
     question: str,
     citations: list[Citation],
-) -> str | None:
-    """Синтезирует ответ по найденным фрагментам с цитатами (оплачивается).
+) -> tuple[str | None, str | None]:
+    """Синтезирует ответ по найденным фрагментам (оплачивается).
 
-    Требуется заданная цена модели: если цена неизвестна, синтез не выполняется
-    (answer=None) — платный вызов без контроля бюджета запрещён.
+    Возвращает (ответ, причина_пропуска). Причина заполняется, когда синтез
+    должен был состояться, но был пропущен: model_not_found,
+    provider_not_found, price_missing. Требуется заданная цена модели: без неё
+    платный вызов не выполняется (answer=None).
     """
     chat_model = await session.get(ModelProfile, chat_model_profile_id)
     if chat_model is None:
-        return None
+        return None, "model_not_found"
     provider = await session.get(ProviderCredential, chat_model.provider_id)
     if provider is None or provider.user_id != user.id:
-        return None
+        return None, "provider_not_found"
 
     price = await get_latest_price(session, chat_model.id)
     if price is None:
         logger.info("synthesis_no_price model=%s", chat_model.external_model_id)
-        return None
+        return None, "price_missing"
 
     connection = ProviderConnection(
         provider_type=provider.provider_type,
@@ -406,7 +414,7 @@ async def _synthesize(
         billing=billing,
         usage=completion.usage,
     )
-    return completion.text
+    return completion.text, None
 
 
 async def _chunk_text(session: AsyncSession, vector_id: str) -> str:

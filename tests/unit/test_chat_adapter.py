@@ -98,3 +98,35 @@ async def test_chat_complete(mock_provider) -> None:
     completion = await adapter.chat_complete(_connection(mock_provider), _request())
     assert completion.text == "Синтезированный ответ"
     assert completion.usage == {"prompt_tokens": 7, "completion_tokens": 3}
+
+
+@pytest.mark.asyncio
+async def test_litellm_proxy_streaming_contract(mock_provider) -> None:
+    """Пресет litellm_proxy стримит через тот же OpenAI-совместимый адаптер.
+
+    Закрывает acceptance Итерации 3 (Task 1.4): contract-тест потокового ответа
+    через mock LiteLLM без отдельной библиотеки и отдельного адаптера.
+    """
+    from personal_hub.providers.registry import get_adapter
+
+    body = _sse(
+        '{"choices":[{"delta":{"content":"prox"}}]}',
+        '{"choices":[{"delta":{"content":"ied"}}]}',
+        "[DONE]",
+    )
+    mock_provider.spec["POST /chat/completions"] = (
+        200,
+        body,
+        {"Content-Type": "text/event-stream"},
+    )
+    host, port = mock_provider.server_address
+    connection = ProviderConnection(
+        provider_type="litellm_proxy",
+        base_url=f"http://{host}:{port}",
+        api_key="sk-proxy",
+    )
+    adapter = get_adapter("litellm_proxy")
+    chunks: list[str] = []
+    async for chunk in adapter.stream_chat(connection, _request()):
+        chunks.append(chunk.content_delta)
+    assert "".join(chunks) == "proxied"

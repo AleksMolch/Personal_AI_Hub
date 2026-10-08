@@ -356,6 +356,9 @@ class Citation(BaseModel):
 class QueryResult(BaseModel):
     sufficient: bool
     answer: str | None = None
+    # Причина, по которой синтез не выполнялся (price_missing и т.п.),
+    # чтобы UI мог объяснить пустой answer.
+    answer_skipped_reason: str | None = None
     citations: list[Citation]
 
 

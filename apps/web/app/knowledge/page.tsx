@@ -22,6 +22,13 @@ import {
 /**
  * Базы знаний: создание, загрузка документов и RAG-запрос с цитатами.
  */
+const ANSWER_SKIP_HINTS: Record<string, string> = {
+  price_missing:
+    "Синтез пропущен: для модели ответа не задана цена (страница «Модели»).",
+  model_not_found: "Синтез пропущен: выбранная модель ответа не найдена.",
+  provider_not_found: "Синтез пропущен: провайдер модели ответа недоступен.",
+};
+
 export default function KnowledgePage() {
   const router = useRouter();
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
@@ -32,6 +39,7 @@ export default function KnowledgePage() {
   const [query, setQuery] = useState("");
   const [chatModel, setChatModel] = useState("");
   const [answer, setAnswer] = useState<string | null>(null);
+  const [answerSkipReason, setAnswerSkipReason] = useState<string | null>(null);
   const [citations, setCitations] = useState<Citation[]>([]);
   const [sufficient, setSufficient] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +121,7 @@ export default function KnowledgePage() {
       setCitations(result.citations);
       setSufficient(result.sufficient);
       setAnswer(result.answer);
+      setAnswerSkipReason(result.answer_skipped_reason ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка запроса.");
     }
@@ -204,6 +213,12 @@ export default function KnowledgePage() {
               <div className="answer">
                 <p>{answer}</p>
               </div>
+            )}
+            {!answer && answerSkipReason && (
+              <p className="hint">
+                {ANSWER_SKIP_HINTS[answerSkipReason] ??
+                  "Синтез ответа пропущен."}
+              </p>
             )}
             {!sufficient && (
               <p className="hint">Недостаточно оснований в документах.</p>

@@ -1,14 +1,19 @@
 """Разбор документов в текст (per-page).
 
 Поддерживает TXT/MD (plain), PDF (pypdf + OCR пустых страниц), DOCX
-(python-docx) и изображения (PNG/JPG/TIFF/WEBP — OCR). Возвращает список
-страниц с текстом. Используются permissive-парсеры (не PyMuPDF). Ошибки OCR
-поднимаются как OcrError (код виден в статусе задачи), а не скрываются.
+(python-docx) и изображения (PNG/JPG/TIFF/WEBP — OCR). Возвращает
+`ParsedDocument` (страницы + warnings). Ошибки OCR поднимаются как OcrError,
+если текст не удалось извлечь вовсе; частичный сбой страниц виден в warnings
+(документ индексируется по успешным страницам).
 """
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from personal_hub.ocr import OcrPagesResult
 
 SUPPORTED_EXTENSIONS = {
     "txt", "md", "markdown", "pdf", "docx",
@@ -30,6 +35,19 @@ class TextPage:
 
     page: int
     text: str
+
+
+@dataclass
+class ParsedDocument:
+    """Результат разбора: страницы с текстом и предупреждения.
+
+    `warnings` заполняется при частичном OCR (часть страниц не распознана) —
+    документ индексируется, но код предупреждения (например, OCR_TIMEOUT
+    с номером страницы) виден в статусе/задаче.
+    """
+
+    pages: list[TextPage]
+    warnings: list[str] = field(default_factory=list)
 
 
 class UnsupportedFormatError(Exception):
@@ -56,21 +74,21 @@ def _detect_format(filename: str, mime_type: str) -> str:
     return ext
 
 
-def parse_document(filename: str, mime_type: str, data: bytes) -> list[TextPage]:
-    """Разбирает документ в список страниц с текстом."""
+def parse_document(filename: str, mime_type: str, data: bytes) -> ParsedDocument:
+    """Разбирает документ в страницы с текстом и предупреждениями."""
     fmt = _detect_format(filename, mime_type)
     if fmt == "pdf":
         return _parse_pdf(data)
     if fmt == "docx":
-        return _parse_docx(data)
+        return ParsedDocument(pages=_parse_docx(data))
     if fmt in {"txt", "md", "markdown"}:
-        return [TextPage(page=1, text=data.decode("utf-8", errors="replace"))]
+        return ParsedDocument(pages=[TextPage(page=1, text=data.decode("utf-8", errors="replace"))])
     if fmt in SUPPORTED_EXTENSIONS and fmt not in {"txt", "md", "markdown", "pdf", "docx"}:
-        return _parse_image(data)
+        return ParsedDocument(pages=_parse_image(data))
     raise UnsupportedFormatError(fmt)
 
 
-def _parse_pdf(data: bytes) -> list[TextPage]:
+def _parse_pdf(data: bytes) -> ParsedDocument:
     from pypdf import PdfReader
 
     reader = PdfReader(io.BytesIO(data))
@@ -82,36 +100,56 @@ def _parse_pdf(data: bytes) -> list[TextPage]:
         if not text:
             empty_pages.append(index + 1)  # 1-based
 
-    # Для сканированных (без текстового слоя) страниц — OCR.
+    # Для сканированных (без текстового слоя) страниц — OCR. Частичный сбой
+    # страниц не отменяет разбор: он виден в warnings.
+    warnings: list[str] = []
     if empty_pages:
         ocr = _ocr_pages(data, empty_pages)
-        for page_num, text in ocr.items():
+        for page_num, text in ocr.texts.items():
             texts[page_num - 1] = text
+        warnings = [
+            f"{code} (стр. {page})" for page, code in sorted(ocr.failed.items())
+        ]
 
     pages: list[TextPage] = []
     for index, text in enumerate(texts, start=1):
         if text.strip():
             pages.append(TextPage(page=index, text=text))
-    return pages or [TextPage(page=1, text="")]
+    return ParsedDocument(
+        pages=pages or [TextPage(page=1, text="")], warnings=warnings
+    )
 
 
-def _ocr_pages(data: bytes, page_indices: list[int]) -> dict[int, str]:
-    """OCR заданных страниц PDF; ошибки поднимаются как OcrError."""
+def _ocr_pages(data: bytes, page_indices: list[int]) -> OcrPagesResult:
+    """OCR заданных страниц PDF; результат содержит тексты и коды сбоев."""
     from personal_hub.ocr import ocr_pdf_pages
 
     return ocr_pdf_pages(data, page_indices)
 
 
 def _parse_image(data: bytes) -> list[TextPage]:
-    """OCR одиночного изображения документа (отдельный page)."""
+    """OCR одиночного изображения документа (отдельный page).
+
+    Защита: при отключённом OCR (`OCR_MAX_PAGES=0`) изображение не принимается;
+    пиксельный лимит проверяется до `load()` (decompression bomb).
+    """
     from PIL import Image
 
     from personal_hub.config import get_settings
-    from personal_hub.ocr import parse_languages, recognize_image
+    from personal_hub.ocr import OcrError, parse_languages, recognize_image
 
-    image = Image.open(io.BytesIO(data))
-    image.load()
     settings = get_settings()
+    if settings.ocr_max_pages == 0:
+        raise OcrError("OCR_DISABLED", "OCR отключён (OCR_MAX_PAGES=0).")
+    image = Image.open(io.BytesIO(data))
+    width, height = image.size
+    if width * height > settings.ocr_max_image_pixels:
+        raise OcrError(
+            "OCR_IMAGE_TOO_LARGE",
+            f"Изображение слишком большое: {width}x{height} px "
+            f"(лимит {settings.ocr_max_image_pixels} px).",
+        )
+    image.load()
     result = recognize_image(image, parse_languages(settings.ocr_languages))
     return [TextPage(page=1, text=result.text)]
 
