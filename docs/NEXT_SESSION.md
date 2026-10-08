@@ -47,7 +47,7 @@ make bootstrap      # окружение + .env + сборка
 make up             # запуск стека
 make down           # остановка
 make lint typecheck # ruff/mypy + tsc/eslint
-make test-unit      # 93 теста (docker)
+make test-unit      # 94 теста (docker)
 make test-integration  # 56 тестов (изолированный postgres+valkey)
 make test-e2e       # Playwright (нужен запущенный стек + admin/supersecret123)
 make smoke          # smoke поднятого экземпляра
@@ -87,8 +87,14 @@ make backup         # архив в backups/
    PowerShell-эквивалентом; host-E2E невозможен при Node 18 (Playwright требует
    20+). Подробности: `docs/WINDOWS_HANDOFF.md`.
 
-7. **Live provider certification** — отдельные тесты реальных API с бюджетом
-   (`RUN_LIVE_TESTS=1`, по умолчанию выключены).
+7. ✅ **Live provider certification — закрыто 2026-10-07.** Каркас
+   `tests/live/` + `make test-live` (по умолчанию выключен, бюджет-гард
+   `LIVE_TEST_BUDGET`, ключи только из `.env`). Реальный провайдер
+   `api.teamorouter.com/v1` (`openai_compatible`), free-модель
+   `deepseek-v4-flash-free`: health (49 моделей), непотоковый чат с actual
+   usage и streaming — зелёные; embedding-моделей у провайдера нет (skip).
+   Бюджет 0.5 USD не израсходован. Побочно: `ProviderConnection.api_key`
+   исключён из repr (pytest печатал фикстуру с ключом при падении).
 
 7.5. ✅ **Улучшения (IMPROVEMENT_TASKS_FOR_CODING_AI.md) — Итерация 1
    (assessment) и Итерация 2 ЗАВЕРШЕНЫ 2026-09-21.** Созданы
@@ -204,22 +210,20 @@ OCR, чанкинг, embeddings, Qdrant, query с цитатами + LLM-син�
 (CSV/XLSX + DuckDB read-only sandbox), релиз (README/LICENSE/notices, backup/
 restore, E2E Playwright).
 
-Текущие проверки зелёные: make test-unit (93), make test-integration (56),
+Текущие проверки зелёные: make test-unit (94), make test-integration (56),
 ruff/mypy/tsc/eslint/prettier, make test-e2e (нужен Node 20+). Стек:
 api/worker/beat/web + postgres/valkey/qdrant, запускается docker compose
 up -d --build. Опционально: make up-litellm (профиль `litellm`, ADR-0004).
 Эксперименты (не входят в зависимости): experiments/llamaindex_rag_benchmark.
 
-Твоя задача — закрытие release gate перед Этапом 2:
-1. Live-тесты (`RUN_LIVE_TESTS=1`) с реальным API-ключом и согласованным
-   бюджетом: live provider certification (пункт 7) — единственный пункт,
-   который нельзя закрыть без ключа пользователя.
-2. Итерации 1–5 из IMPROVEMENT_TASKS_FOR_CODING_AI.md закрыты (assessment,
-   RapidOCR, LiteLLM proxy, LlamaIndex benchmark); Итерация 4 (Docling)
-   остаётся DEFER — браться только при появлении реальной потребности в
-   сложных PDF.
-3. Перед началом Этапа 2 убедиться, что счётчики тестов совпадают с
-   фактическими (`make test-unit`, `make test-integration`).
+Release gate закрыт: live provider certification выполнен (пункт 7), все
+Итерации 1–5 из IMPROVEMENT_TASKS_FOR_CODING_AI.md закрыты или DEFER.
+Твоя задача — подготовка Этапа 2 (Video) по ROADMAP:
+1. Итерация 4 (Docling) остаётся DEFER — браться только при появлении
+   реальной потребности в сложных PDF.
+2. Перед началом Этапа 2 убедиться, что счётчики тестов совпадают с
+   фактическими (`make test-unit`, `make test-integration`), и что live-каркас
+   (`make test-live`) по-прежнему выключен по умолчанию.
 
 Уже закрыто в конце Итерации 2 (2026-09-21): E2E с реальными бинарниками
 poppler→tesseract (blank-скан PDF → EMPTY_DOCUMENT в статусе документа,
@@ -233,10 +237,13 @@ poppler→tesseract (blank-скан PDF → EMPTY_DOCUMENT в статусе д�
 - Итерация 3: LiteLLM как внешний proxy (ADR-0004), integration 45→47.
 Закрыто 2026-10-07:
 - исправления предыдущей сессии: ingest помечает документ failed при сбоях
-  провайдера/разбора (unit 93, integration 56), OCR рендерит только
+  провайдера/разбора (unit 94, integration 56), OCR рендерит только
   запрошенные страницы, исправлен Base URL OpenRouter в примерах LiteLLM;
 - Итерация 5: benchmark `experiments/llamaindex_rag_benchmark/` — dependency
-  не добавляется, recall@k совпадает, decision report в assessment.
+  не добавляется, recall@k совпадает, decision report в assessment;
+- Live provider certification: `tests/live/` + `make test-live`, реальный
+  `api.teamorouter.com` (`deepseek-v4-flash-free`): 3 passed / 1 skipped
+  (embeddings у провайдера нет), бюджет не израсходован.
 
 Обязательно (AGENTS.md): тест/критерий до кода, unit + integration + негативный
 тест, Decimal для денег, budget блокирует ДО провайдера, estimated не выдавать за

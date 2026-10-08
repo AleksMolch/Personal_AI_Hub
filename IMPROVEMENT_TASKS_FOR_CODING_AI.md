@@ -710,7 +710,7 @@ Live-тесты нельзя запускать без явного соглас
 | 4 — Docling enhanced parser | ⏸ DEFER, по одной задаче за раз | `docs/IMPROVEMENTS_ASSESSMENT.md` |
 | 5 — LlamaIndex benchmark | ✅ закрыто (PROTOTYPE ONLY, production не затронут) | `experiments/llamaindex_rag_benchmark/`, decision report в `docs/IMPROVEMENTS_ASSESSMENT.md` |
 
-Зелёные проверки после Итерации 5 + минорного прохода (2026-10-07): unit 93, integration 56, ruff,
+Зелёные проверки после Итерации 5 + минорного прохода (2026-10-07): unit 94, integration 56, ruff,
 mypy (66 файлов), tsc/eslint/prettier, `make smoke` (ready/version/alembic 0007
 head/worker pong). Дополнительно исправлены дефекты предыдущей сессии: ingest
 теперь помечает документ failed при сбоях провайдера/разбора (а не оставляет

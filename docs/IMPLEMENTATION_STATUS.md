@@ -124,7 +124,13 @@
 - [x] LiteLLM proxy (опционально, ADR-0004): живой прогон профиля `litellm`
       — контейнер healthy, `/health/liveliness` → 200, `/v1/models` →
       `litellm-default`
-- [ ] Live provider certification (RUN_LIVE_TESTS=1, отдельный бюджет)
+- [x] Live provider certification (2026-10-07): каркас `tests/live/` +
+      `make test-live` (по умолчанию выключен, бюджет-гард). Реальный провайдер
+      `api.teamorouter.com/v1` (`openai_compatible`), free-модель
+      `deepseek-v4-flash-free`: health (49 моделей), непотоковый чат с actual
+      usage, streaming — зелёные; embedding-моделей у провайдера нет (тест
+      пропущен). Бюджет 0.5 USD не израсходован (free-модель). Побочно закрыта
+      утечка ключа: `ProviderConnection.api_key` исключён из repr.
 
 ## Улучшения (IMPROVEMENT_TASKS_FOR_CODING_AI.md) — Итерации 1–3, 5 закрыты
 - [x] Итерация 1: assessment (`docs/IMPROVEMENTS_ASSESSMENT.md`, ADR-0002/0003)
@@ -151,9 +157,9 @@
 ## Определение готовности Этапа 1
 Чистая установка по README, health, миграции, провайдеры, streaming chat,
 бюджеты, RAG, таблицы — реализованы и покрыты unit/integration-тестами.
-Windows clean install закрыт (2026-09-16). Из известных ограничений остаются
-Live provider certification и host-E2E Playwright при Node <20 (см.
-`docs/WINDOWS_HANDOFF.md`); ни то, ни другое не блокирует локальный запуск.
+Windows clean install закрыт (2026-09-16), live provider certification закрыт
+(2026-10-07). Из известных ограничений остаётся host-E2E Playwright при Node <20
+(см. `docs/WINDOWS_HANDOFF.md`); оно не блокирует локальный запуск.
 
 ## Нефункциональные требования (частично)
 - [x] Логи без секретов (redaction ключей в JSON-форматере)
