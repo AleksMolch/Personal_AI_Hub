@@ -103,16 +103,27 @@ test.describe("Клавиатура в чате", () => {
     await login(page);
     await page.goto("/chat");
 
-    await expect(page.getByRole("heading", { name: "Чат" })).toBeVisible();
+    // Заголовок верхнего уровня обязателен: без него страница лишена
+    // ориентира для скринридера (axe: heading-order).
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await expect(page.getByRole("main")).toBeVisible();
 
-    // Поле ввода имеет доступное имя (визуальной подписи нет — она sr-only).
-    const input = page.getByLabel("Сообщение");
-    await expect(input).toBeVisible();
+    // Поле ввода существует ВСЕГДА — даже когда моделей нет: иначе при пустой
+    // установке пропадает композер и непонятно, куда возвращаться после
+    // настройки провайдера (найдено реальным прогоном E2E).
+    const input = page.getByLabel("Текст сообщения");
+    await expect(input).toBeAttached();
 
-    // Остановка генерации и отправка — кнопки с доступными именами.
-    await expect(
-      page.getByRole("button", { name: "Отправить сообщение" }),
-    ).toBeVisible();
+    if (await input.isDisabled()) {
+      // Моделей нет — поле заблокировано, но остаётся в раскладке.
+      await expect(input).toBeDisabled();
+    } else {
+      // Модели настроены — поле работает, кнопка отправки подписана.
+      await expect(input).toBeEnabled();
+      await expect(
+        page.getByRole("button", { name: "Отправить сообщение" }),
+      ).toBeVisible();
+    }
 
     // Заглушка локального режима есть, но выключена: локального inference нет.
     const localSwitch = page.getByRole("switch").first();

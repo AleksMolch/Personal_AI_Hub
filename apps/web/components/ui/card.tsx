@@ -30,13 +30,32 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
-/** Заголовок карточки. */
-function CardTitle({ className, ...props }: React.ComponentProps<"h3">) {
+/**
+ * Заголовок карточки.
+ *
+ * Уровень заголовка настраивается: axe проверяет порядок заголовков
+ * (`heading-order`), и на странице, где перед карточкой стоит `h1`, уровень
+ * `h3` создаёт пропуск. По умолчанию `h2` — корректный уровень для карточки
+ * сразу под заголовком страницы.
+ *
+ * @param props Свойства заголовка плюс `level` (2..6).
+ * @returns Элемент заголовка нужного уровня.
+ */
+function CardTitle({
+  className,
+  level = 2,
+  ...props
+}: React.ComponentProps<"h2"> & {
+  /** Уровень заголовка: 2 (по умолчанию) … 6. */
+  level?: 2 | 3 | 4 | 5 | 6;
+}) {
+  const Heading = `h${level}` as "h2" | "h3" | "h4" | "h5" | "h6";
+
   return (
-    <h3
+    <Heading
       data-slot="card-title"
       className={cn("text-pah-lg leading-none font-semibold", className)}
-      {...props}
+      {...(props as React.ComponentProps<"h2">)}
     />
   );
 }

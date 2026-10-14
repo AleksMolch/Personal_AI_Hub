@@ -134,7 +134,11 @@ export function ChatInput({
   // Без цены backend блокирует платный вызов, поэтому предупреждение не
   // скрывается пользователем: это не подсказка, а объяснение отказа.
   const showPricingWarning = Boolean(selected && !selected.hasPrice);
-  const canSend = value.trim().length > 0 && !isStreaming;
+  // Без моделей отправлять нечего: поле ввода остаётся на месте (чтобы
+  // раскладка не «прыгала» и пользователь видел, куда вернуться), но
+  // блокируется с понятной подсказкой.
+  const noModels = models.length === 0;
+  const canSend = value.trim().length > 0 && !isStreaming && !noModels;
 
   /** Отправляет сообщение и очищает поле ввода. */
   function submit() {
@@ -293,17 +297,24 @@ export function ChatInput({
         </div>
 
         <div className="relative">
+          {/* Метка визуально скрыта, но обязана быть уникальной: имя
+              «Сообщение» совпадало с placeholder'ом «Напишите сообщение…»,
+              из-за чего поиск по доступному имени находил два элемента. */}
           <Label htmlFor={textareaId} className="sr-only">
-            Сообщение
+            Текст сообщения
           </Label>
           <Textarea
             id={textareaId}
             value={value}
             onChange={(e) => onValueChange(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Напишите сообщение… (Enter — отправить, Shift+Enter — новая строка)"
+            placeholder={
+              noModels
+                ? "Сначала добавьте провайдера и синхронизируйте модели"
+                : "Напишите сообщение… (Enter — отправить, Shift+Enter — новая строка)"
+            }
             className="min-h-20 pr-24"
-            disabled={isStreaming}
+            disabled={isStreaming || noModels}
           />
           <div className="absolute right-2 bottom-2 flex gap-1">
             {/* Прикрепление файлов появится вместе с передачей вложений в чат;

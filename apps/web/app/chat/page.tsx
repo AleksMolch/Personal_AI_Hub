@@ -28,6 +28,7 @@ import { MessageList } from "@/components/chat/message-list";
 import type { ChatMessageView } from "@/components/chat/message";
 import type { WebSource } from "@/components/chat/web-sources";
 import { NavigationLinks } from "@/components/navigation-links";
+import { PageHeading } from "@/components/page-heading";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -370,7 +371,9 @@ export default function ChatPage() {
         >
           <Menu />
         </Button>
-        <h1 className="text-pah-lg font-semibold">Чат</h1>
+        <PageHeading level={1} className="text-pah-lg">
+          Чат
+        </PageHeading>
         <NavigationLinks className="hidden min-w-0 flex-1 md:block" />
         <div className="ml-auto">
           <Button
@@ -449,6 +452,7 @@ export default function ChatPage() {
         </aside>
 
         <section
+          role="main"
           className="flex min-h-0 flex-col"
           aria-label="Область переписки"
         >
@@ -479,23 +483,32 @@ export default function ChatPage() {
               <Skeleton className="h-4 w-1/4" />
               <Skeleton className="h-28 w-full" />
             </div>
-          ) : viewMessages.length === 0 && !streaming ? (
-            <EmptyChatState
-              examples={EXAMPLE_PROMPTS}
-              onUseExample={(text) => setDraft(text)}
-              onNewChat={newConversation}
-            />
           ) : (
+            /* MessageList рендерится всегда: область role="log" обязана
+               существовать в DOM до появления первого ответа, иначе
+               скринридер не объявит его. Пустой диалог показывается внутри
+               журнала как EmptyPlaceholder. */
             <MessageList
               messages={viewMessages}
               streamingContent={streamContent}
               isStreaming={streaming}
               onRegenerate={regenerate}
+              emptyPlaceholder={
+                <EmptyChatState
+                  examples={EXAMPLE_PROMPTS}
+                  onUseExample={(text) => setDraft(text)}
+                  onNewChat={newConversation}
+                />
+              }
             />
           )}
 
-          {models.length === 0 ? (
-            <div className="border-t p-4">
+          {/* Предупреждение показывается НАД полем ввода, а не вместо него:
+              иначе при отсутствии моделей у пользователя пропадает композер и
+              непонятно, куда возвращаться после настройки провайдера.
+              Поле ввода при этом заблокировано. */}
+          {models.length === 0 && (
+            <div className="px-4 pt-2">
               <Alert>
                 <AlertDescription className="flex flex-wrap items-center gap-2">
                   Нет доступных моделей. Добавьте провайдера и синхронизируйте
@@ -511,30 +524,30 @@ export default function ChatPage() {
                 </AlertDescription>
               </Alert>
             </div>
-          ) : (
-            <ChatInput
-              models={chatModels}
-              selectedModel={selectedModel}
-              onModelChange={setSelectedModel}
-              onSend={(text, options) => void send(text, options)}
-              onStop={stopStreaming}
-              isStreaming={streaming}
-              value={draft}
-              onValueChange={setDraft}
-              webSearchAvailable={webSearchAvailable}
-              webSearch={webSearchEnabled}
-              onWebSearchChange={setWebSearchEnabled}
-              remainingBudget={
-                summary
-                  ? {
-                      daily: summary.daily_remaining,
-                      currency: summary.currency,
-                    }
-                  : undefined
-              }
-              onSetupPrice={() => router.push("/models")}
-            />
           )}
+
+          <ChatInput
+            models={chatModels}
+            selectedModel={selectedModel}
+            onModelChange={setSelectedModel}
+            onSend={(text, options) => void send(text, options)}
+            onStop={stopStreaming}
+            isStreaming={streaming}
+            value={draft}
+            onValueChange={setDraft}
+            webSearchAvailable={webSearchAvailable}
+            webSearch={webSearchEnabled}
+            onWebSearchChange={setWebSearchEnabled}
+            remainingBudget={
+              summary
+                ? {
+                    daily: summary.daily_remaining,
+                    currency: summary.currency,
+                  }
+                : undefined
+            }
+            onSetupPrice={() => router.push("/models")}
+          />
         </section>
       </div>
     </div>

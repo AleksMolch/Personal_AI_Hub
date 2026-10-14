@@ -25,20 +25,29 @@ interface MessageListProps {
   isStreaming?: boolean;
   /** Повторить генерацию для указанного ответа. */
   onRegenerate?: (messageId: string) => void;
+  /** Содержимое пустого диалога (приглашение к первому запросу). */
+  emptyPlaceholder?: React.ReactNode;
 }
 
 /**
  * Виртуализированный список сообщений.
  *
- * @param props Сообщения, текущий поток и обработчик повтора.
+ * @param props Сообщения, текущий поток, обработчик повтора и пустое состояние.
  * @returns Прокручиваемый список; автоматически доскролливает вниз при
  *   появлении новых данных и во время стриминга.
+ *
+ * @remarks
+ * Область `role="log"` рендерится ВСЕГДА, даже когда сообщений нет. Это
+ * требование доступности: live-region должен существовать в DOM до того, как
+ * в нём появится текст, иначе скринридер не объявит первый ответ — он просто
+ * не увидит появления новой области.
  */
 export function MessageList({
   messages,
   streamingContent,
   isStreaming,
   onRegenerate,
+  emptyPlaceholder,
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
 
@@ -70,29 +79,40 @@ export function MessageList({
 
   return (
     <div
-      className="min-h-0 flex-1"
+      className="flex min-h-0 flex-1 flex-col"
       role="log"
       aria-label="Сообщения диалога"
       aria-busy={isStreaming || undefined}
     >
-      <Virtuoso
-        ref={virtuosoRef}
-        data={items}
-        className="h-full"
-        followOutput="smooth"
-        initialTopMostItemIndex={Math.max(0, items.length - 1)}
-        itemContent={(_index, item) => (
-          <ChatMessage
-            key={item.id}
-            message={item}
-            onRegenerate={
-              onRegenerate && !item.isStreaming
-                ? () => onRegenerate(item.id)
-                : undefined
-            }
+      {items.length === 0 ? (
+        /* Пустой диалог: приглашение внутри журнала. EmptyPlaceholder у
+           Virtuoso использовать нельзя — он растягивается на всю высоту
+           скроллера и выталкивает поле ввода за пределы секции. */
+        <div className="min-h-0 flex-1 overflow-y-auto">{emptyPlaceholder}</div>
+      ) : (
+        /* Обёртка нужна для размеров: Virtuoso измеряет родителя, поэтому
+           родитель обязан занимать конкретную высоту, а не «сколько выйдет». */
+        <div className="min-h-0 flex-1">
+          <Virtuoso
+            ref={virtuosoRef}
+            data={items}
+            className="h-full"
+            followOutput="smooth"
+            initialTopMostItemIndex={Math.max(0, items.length - 1)}
+            itemContent={(_index, item) => (
+              <ChatMessage
+                key={item.id}
+                message={item}
+                onRegenerate={
+                  onRegenerate && !item.isStreaming
+                    ? () => onRegenerate(item.id)
+                    : undefined
+                }
+              />
+            )}
           />
-        )}
-      />
+        </div>
+      )}
     </div>
   );
 }

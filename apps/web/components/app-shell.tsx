@@ -10,6 +10,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { NavigationLinks } from "@/components/navigation-links";
+import { PageHeading } from "@/components/page-heading";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { setToken } from "@/lib/api";
@@ -84,9 +85,7 @@ export function AppShell({
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-pah-2xl font-semibold tracking-tight">
-              {title}
-            </h1>
+            <PageHeading level={1}>{title}</PageHeading>
             {description && (
               <p className="text-muted-foreground mt-1 text-sm">
                 {description}
