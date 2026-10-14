@@ -32,6 +32,16 @@ STREAM_READ_TIMEOUT_SECONDS = 180.0
 # OpenRouter-style pricing отдаёт цену за токен; PriceSnapshot хранит за 1M.
 _TOKENS_PER_MILLION = Decimal("1000000")
 
+# Типы провайдеров, у которых управление рассуждениями принимается в
+# нормализованном объекте `reasoning`, а не в плоском `reasoning_effort`.
+# Оба поля документированы OpenRouter; отправляем ровно одно, потому что
+# порядок разрешения конфликта при отправке обоих не документирован.
+_REASONING_OBJECT_PROVIDERS = frozenset({"openrouter"})
+
+# Значения `capabilities`/`supported_parameters`, по которым провайдер сообщает
+# о поддержке управления рассуждениями.
+_REASONING_MARKERS = frozenset({"reasoning", "reasoning_effort", "include_reasoning"})
+
 # Понятные сообщения для пользователя по нормализованному коду.
 _MESSAGES: dict[str, str] = {
     "PROVIDER_UNAUTHORIZED": "Неверный API-ключ (401).",
@@ -40,6 +50,30 @@ _MESSAGES: dict[str, str] = {
     "PROVIDER_RATE_LIMITED": "Провайдер временно ограничил частоту запросов (429).",
     "PROVIDER_ERROR": "Ошибка провайдера.",
 }
+
+
+def _declares_reasoning(item: dict) -> bool:
+    """Определяет поддержку управления рассуждениями по данным провайдера.
+
+    Признак берётся только из явных деклараций в ответе `/models`:
+    `supported_parameters` (OpenRouter) или `capabilities`. Мы намеренно НЕ
+    угадываем по названию модели: правила проекта запрещают выводить поддержку
+    возможности из маркетингового имени, а ошибка здесь приводит к 400 у
+    провайдера или к декоративному селектору в UI.
+
+    Args:
+        item: Элемент списка моделей из ответа провайдера.
+
+    Returns:
+        True, если провайдер явно заявил поддержку управления рассуждениями.
+    """
+    params = item.get("supported_parameters")
+    if isinstance(params, list) and _REASONING_MARKERS.intersection(params):
+        return True
+    caps = item.get("capabilities")
+    if isinstance(caps, list) and _REASONING_MARKERS.intersection(caps):
+        return True
+    return False
 
 
 def _parse_pricing(item: dict) -> RemotePricing | None:
@@ -81,10 +115,38 @@ def _to_per_million(value: object) -> Decimal | None:
 
 
 class OpenAICompatibleAdapter:
-    """Реализует health и list_models для OpenAI-compatible API."""
+    """Реализует health, list_models и чат для OpenAI-compatible API."""
 
     def _headers(self, connection: ProviderConnection) -> dict[str, str]:
         return {"Authorization": f"Bearer {connection.api_key}"}
+
+    def _apply_reasoning(
+        self, payload: dict, connection: ProviderConnection, request: ChatRequest
+    ) -> None:
+        """Добавляет в тело запроса управление глубиной рассуждений.
+
+        Поле кладётся только если модель объявила capability `reasoning`:
+        отправка параметра модели без поддержки приводит к 400 у части
+        провайдеров, а «на всякий случай» слать его нельзя.
+
+        Форма поля зависит от типа провайдера и берётся из данных провайдера, а
+        не из названия модели: OpenRouter принимает объект `reasoning.effort`,
+        остальные OpenAI-compatible endpoints — плоский `reasoning_effort`.
+
+        Args:
+            payload: Тело запроса, которое будет отправлено (изменяется на месте).
+            connection: Соединение с провайдером (определяет форму поля).
+            request: Запрос; используется глубина и capabilities модели.
+        """
+        depth = request.reasoning_depth
+        if depth is None:
+            return
+        if Capability.REASONING.value not in request.model_capabilities:
+            return
+        if connection.provider_type in _REASONING_OBJECT_PROVIDERS:
+            payload["reasoning"] = {"effort": depth.value}
+        else:
+            payload["reasoning_effort"] = depth.value
 
     async def health(self, connection: ProviderConnection) -> HealthResult:
         """Проверяет ключ запросом GET /models (без платных вызовов)."""
@@ -133,11 +195,16 @@ class OpenAICompatibleAdapter:
             external_id = item.get("id") or ""
             if not external_id:
                 continue
+            capabilities = [Capability.CHAT.value, Capability.STREAMING.value]
+            # Поддержка управления рассуждениями — данные от провайдера, а не
+            # догадка по имени модели.
+            if _declares_reasoning(item):
+                capabilities.append(Capability.REASONING.value)
             models.append(
                 RemoteModel(
                     external_id=external_id,
                     display_name=item.get("name") or external_id,
-                    capabilities=[Capability.CHAT.value, Capability.STREAMING.value],
+                    capabilities=capabilities,
                     context_limit=item.get("context_length"),
                     pricing=_parse_pricing(item),
                 )
@@ -161,6 +228,7 @@ class OpenAICompatibleAdapter:
             payload["temperature"] = request.temperature
         if request.max_tokens is not None:
             payload["max_tokens"] = request.max_tokens
+        self._apply_reasoning(payload, connection, request)
 
         timeout = httpx.Timeout(DEFAULT_TIMEOUT_SECONDS, read=STREAM_READ_TIMEOUT_SECONDS)
         try:
@@ -231,6 +299,7 @@ class OpenAICompatibleAdapter:
             payload["temperature"] = request.temperature
         if request.max_tokens is not None:
             payload["max_tokens"] = request.max_tokens
+        self._apply_reasoning(payload, connection, request)
 
         try:
             async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_SECONDS) as client:

@@ -1,0 +1,49 @@
+# Шаблон конфигурации SearXNG для Personal AI Hub.
+#
+# Назначение: включить JSON API, которым пользуется backend при веб-поиске.
+# Без формата `json` в списке `search.formats` любой запрос вернёт 403 — это
+# самая частая ошибка при подключении SearXNG.
+#
+# Место в архитектуре: монтируется в контейнер `searxng` (compose-профиль
+# `search`). Секретов не содержит.
+#
+# Про secret_key: SearXNG читает его из переменной окружения SEARXNG_SECRET
+# (она задаётся в .env и передаётся контейнеру), поэтому в файле ключа нет.
+# Если переменную не задать, SearXNG сгенерирует случайный ключ при старте —
+# поиск продолжит работать, но сессии не переживут перезапуск контейнера.
+
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "Personal AI Hub search"
+
+search:
+  # Формат json обязателен: backend обращается к /search?format=json.
+  formats:
+    - html
+    - json
+  # Безопасный поиск включён по умолчанию.
+  safe_search: 1
+  autocomplete: ""
+  default_lang: "ru"
+
+server:
+  # Важно: limiter выключен, потому что SearXNG вызывается только из
+  # внутренней сети compose, а не из браузера. Включать limiter имеет смысл
+  # лишь для публично доступного экземпляра.
+  limiter: false
+  image_proxy: false
+  # Порт внутри контейнера.
+  port: 8080
+  bind_address: "0.0.0.0"
+
+ui:
+  static_use_hash: true
+
+outgoing:
+  request_timeout: 6.0
+  max_request_timeout: 10.0
+  # Ограничиваем параллелизм, чтобы не выглядеть для движков как бот-атака.
+  pool_connections: 20
+  pool_maxsize: 10

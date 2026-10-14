@@ -58,6 +58,15 @@ def parse_usage(usage: dict | None) -> dict:
 
     Поддерживает prompt_tokens/completion_tokens, кэшированные токены и
     reasoning. Отсутствующие поля дают 0, а не ошибку.
+
+    Токены рассуждений провайдеры отдают в двух разных местах: часть — плоским
+    полем `reasoning_tokens`, OpenAI и OpenRouter — вложенно, в
+    `completion_tokens_details.reasoning_tokens`. Читаем оба варианта, иначе
+    показатель молча теряется, хотя он нужен UI для объяснения стоимости.
+
+    Важно: reasoning_tokens НЕ добавляются к output_tokens. Провайдеры уже
+    включают их в `completion_tokens`, поэтому прибавление привело бы к двойному
+    списанию. Поле носит информационный характер.
     """
     if not usage:
         return {}
@@ -74,6 +83,15 @@ def parse_usage(usage: dict | None) -> dict:
     if cached is not None:
         units["cache_read_tokens"] = int(cached)
 
-    if usage.get("reasoning_tokens") is not None:
-        units["reasoning_tokens"] = int(usage["reasoning_tokens"])
+    # Кэш на запись (Anthropic-style) приходит отдельным блоком.
+    cache_creation = usage.get("cache_creation_input_tokens")
+    if cache_creation is not None:
+        units["cache_write_tokens"] = int(cache_creation)
+
+    reasoning = usage.get("reasoning_tokens")
+    if reasoning is None:
+        completion_details = usage.get("completion_tokens_details") or {}
+        reasoning = completion_details.get("reasoning_tokens")
+    if reasoning is not None:
+        units["reasoning_tokens"] = int(reasoning)
     return units

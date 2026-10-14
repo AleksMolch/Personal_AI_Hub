@@ -51,6 +51,59 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
+/**
+ * Запрашивает бинарный ответ (экспорт файла) с авторизацией.
+ *
+ * Отдельно от `request`, потому что ответ — не JSON, а файл: читаем его как
+ * Blob и сохраняем через временную ссылку. Ошибки backend всё равно приходят
+ * в JSON-формате, поэтому при неуспешном статусе разбираем тело как JSON.
+ *
+ * @param path Путь эндпоинта.
+ * @param init Параметры запроса (метод, тело).
+ * @returns Объект Blob с содержимым файла.
+ * @throws ApiError Если backend вернул ошибку.
+ */
+async function requestBlob(
+  path: string,
+  init: RequestInit = {},
+): Promise<Blob> {
+  const headers = new Headers(init.headers);
+  if (init.body) headers.set("Content-Type", "application/json");
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const err = body?.error ?? {};
+    throw new ApiError(
+      err.code ?? "UNKNOWN",
+      err.message ?? "Не удалось выполнить экспорт",
+      res.status,
+    );
+  }
+  return res.blob();
+}
+
+/**
+ * Сохраняет Blob как файл, инициируя скачивание в браузере.
+ *
+ * @param blob Содержимое файла.
+ * @param filename Имя файла для пользователя.
+ * @returns Ничего; побочный эффект — скачивание файла.
+ */
+export function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Освобождаем память: без revoke объект живёт до перезагрузки страницы.
+  URL.revokeObjectURL(url);
+}
+
 export interface User {
   id: string;
   username: string;
@@ -108,6 +161,8 @@ export interface ModelProfile {
   external_model_id: string;
   display_name: string;
   capabilities: string[];
+  /** Задана ли цена модели: без неё платный вызов не выполняется. */
+  has_price: boolean;
 }
 
 /** URL для EventSource (SSE) — токен передаётся query-параметром. */
@@ -137,6 +192,12 @@ export interface UsageRecord {
   currency: string;
   cost_state: string;
   model_profile_id: string | null;
+  /**
+   * Сообщение, к которому относится расход. Позволяет показать стоимость
+   * конкретного ответа в чате, а не только суммарные траты.
+   */
+  message_id: string | null;
+  provider_request_id: string | null;
   occurred_at: string;
 }
 
@@ -242,6 +303,15 @@ export interface FxRate {
 }
 
 export const api = {
+  /**
+   * Возможности сервера, влияющие на состав элементов интерфейса.
+   *
+   * Нужны, чтобы не рендерить неработающие переключатели: например, опция
+   * веб-поиска показывается только при `web_search: true`.
+   *
+   * @returns Флаги включённых на сервере возможностей.
+   */
+  capabilities: () => request<{ web_search: boolean }>("/api/v1/capabilities"),
   login: (username: string, password: string) =>
     request<TokenResponse>("/api/v1/auth/login", {
       method: "POST",
@@ -290,6 +360,8 @@ export const api = {
     conversationId: string,
     content: string,
     modelProfileId?: string,
+    reasoningDepth?: "low" | "medium" | "high",
+    webSearch?: boolean,
   ) =>
     request<{ generation_id: string }>(
       `/api/v1/conversations/${conversationId}/messages`,
@@ -298,6 +370,8 @@ export const api = {
         body: JSON.stringify({
           content,
           model_profile_id: modelProfileId ?? null,
+          reasoning_depth: reasoningDepth ?? null,
+          web_search: webSearch ?? false,
         }),
       },
     ),
@@ -370,6 +444,23 @@ export const api = {
     request<TableQueryResult>(`/api/v1/assets/${assetId}/table/query`, {
       method: "POST",
       body: JSON.stringify({ sql }),
+    }),
+  /**
+   * Экспорт результата запроса средствами backend.
+   *
+   * Использует серверный эндпоинт экспорта, а не формирование файла на
+   * клиенте: XLSX на клиенте пришлось бы подделывать HTML-таблицей с
+   * расширением `.xls`, что не является настоящим XLSX.
+   *
+   * @param assetId Идентификатор ассета-таблицы.
+   * @param sql SQL-запрос (только SELECT).
+   * @param format Формат файла: csv или xlsx.
+   * @returns Blob с готовым файлом для скачивания.
+   */
+  tableExport: (assetId: string, sql: string, format: "csv" | "xlsx") =>
+    requestBlob(`/api/v1/assets/${assetId}/table/export`, {
+      method: "POST",
+      body: JSON.stringify({ sql, format }),
     }),
   prices: (modelProfileId: string) =>
     request<Price[]>(

@@ -12,6 +12,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from personal_hub.config import get_settings
 from personal_hub.db.engine import get_session
 from personal_hub.models import (
     Conversation,
@@ -21,9 +22,23 @@ from personal_hub.models import (
     ProviderCredential,
     User,
 )
-from personal_hub.providers.base import ChatMessage, ChatRequest, ProviderConnection
+from personal_hub.providers.base import (
+    Capability,
+    ChatMessage,
+    ChatRequest,
+    ProviderConnection,
+    ReasoningDepth,
+)
 from personal_hub.providers.registry import get_adapter
 from personal_hub.security.crypto import get_cipher
+from personal_hub.websearch.base import WebCitation, WebSearchError
+from personal_hub.websearch.service import (
+    build_citations,
+    build_search_context,
+    build_search_system_prompt,
+    format_search_warnings,
+    get_web_search_provider,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -192,6 +207,20 @@ async def create_message(
     model_profile_id = payload.model_profile_id or conversation.model_profile_id
     model, provider = await _resolve_model(session, user, model_profile_id)
 
+    # Глубину рассуждений принимаем только для моделей, которые её объявили.
+    # Иначе вернули бы 400 от провайдера или молча проигнорировали параметр —
+    # и то, и другое хуже явной ошибки: пользователь думал бы, что управляет
+    # поведением модели.
+    reasoning_depth: ReasoningDepth | None = None
+    if payload.reasoning_depth is not None:
+        if Capability.REASONING.value not in (model.capabilities or []):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Выбранная модель не поддерживает управление глубиной "
+                "рассуждений.",
+            )
+        reasoning_depth = ReasoningDepth(payload.reasoning_depth)
+
     # Цена обязательна: неизвестная цена блокирует запрос (strict mode).
     price = await get_latest_price(session, model.id)
     if price is None:
@@ -215,11 +244,53 @@ async def create_message(
     ]
     chat_messages.append(ChatMessage(role="user", content=payload.content))
 
+    # Веб-поиск выполняется ДО обращения к LLM и только один раз на запрос:
+    # автоматические «уточняющие» поиски модели недопустимы, так как
+    # неуправляемо увеличивают расходы и задержку.
+    settings = get_settings()
+    web_citations: list[WebCitation] = []
+    search_context = ""
+    search_warning: str | None = None
+    if payload.web_search:
+        provider_search = get_web_search_provider(settings)
+        if provider_search is None:
+            # Возможность выключена на сервере: сообщаем явно, а не молча
+            # игнорируем флаг — иначе пользователь считал бы, что поиск был.
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Веб-поиск выключен на сервере (WEB_SEARCH_ENABLED=0).",
+            )
+        try:
+            response = await provider_search.search(
+                payload.content, limit=settings.web_search_max_results
+            )
+        except WebSearchError as exc:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                f"{exc.message} ({exc.code})",
+            ) from exc
+        web_citations = build_citations(response)
+        search_context = build_search_context(
+            web_citations, max_chars=settings.web_search_max_context_chars
+        )
+        search_warning = format_search_warnings(response)
+
+    # Системная инструкция: при веб-поиске она дополняется контекстом и
+    # правилами цитирования. Основная инструкция диалога сохраняется.
+    system_prompt = conversation.system_instruction
+    if search_context:
+        search_prompt = build_search_system_prompt(search_context)
+        system_prompt = (
+            f"{system_prompt}\n\n{search_prompt}" if system_prompt else search_prompt
+        )
+
     # Оценка стоимости и резервирование ДО отправки провайдеру.
     history_text = "\n".join(
         (conversation.system_instruction or "") + m.content for m in chat_messages
     )
-    estimated_units = estimate_units(history_text, model.output_limit)
+    estimated_units = estimate_units(
+        history_text, model.output_limit, reasoning_depth
+    )
 
     # Сообщение пользователя.
     user_message = Message(
@@ -233,6 +304,9 @@ async def create_message(
     await session.flush()
 
     # Сообщение-генерация (ассистент).
+    # reasoning_depth и источники веб-поиска сохраняются в снимке: история
+    # должна объяснять, с какой глубиной и по каким источникам получен ответ,
+    # иначе позднее нельзя обосновать ни его содержание, ни стоимость.
     generation = Message(
         conversation_id=conversation.id,
         role="assistant",
@@ -244,6 +318,20 @@ async def create_message(
             "model": model.external_model_id,
             "provider_type": provider.provider_type,
             "display_name": model.display_name,
+            "reasoning_depth": reasoning_depth.value if reasoning_depth else None,
+            "web_search": {
+                "used": bool(search_context),
+                "warning": search_warning,
+                "citations": [
+                    {
+                        "index": c.index,
+                        "title": c.title,
+                        "url": c.url,
+                        "snippet": c.snippet,
+                    }
+                    for c in web_citations
+                ],
+            },
         },
     )
     session.add(generation)
@@ -263,7 +351,9 @@ async def create_message(
     request = ChatRequest(
         model=model.external_model_id,
         messages=chat_messages,
-        system=conversation.system_instruction,
+        system=system_prompt,
+        reasoning_depth=reasoning_depth,
+        model_capabilities=list(model.capabilities or []),
     )
 
     _spawn(

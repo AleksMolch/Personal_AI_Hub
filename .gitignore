@@ -29,6 +29,8 @@ out/
 next-env.d.ts
 playwright-report/
 test-results/
+# Локальный кэш npm (используется, когда кэш вне workspace недоступен)
+.npm-cache/
 
 # Docker / data volumes
 data/

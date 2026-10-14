@@ -22,6 +22,16 @@ class _Handler(BaseHTTPRequestHandler):
         key = f"{method} {self.path}"
         entry = spec.get(key) if key in spec else (spec.get(self.path) if method == "GET" else None)
         if entry is None:
+            # `BaseHTTPRequestHandler.path` включает query string, поэтому
+            # запрос вида `/search?q=...&format=json` не совпал бы с ключом
+            # `/search`. Пробуем путь без параметров: это делает регистрацию
+            # обработчиков предсказуемой и не мешает точным ключам.
+            bare = f"{method} {self.path.split('?', 1)[0]}"
+            if bare in spec:
+                entry = spec[bare]
+            elif method == "GET" and self.path.split("?", 1)[0] in spec:
+                entry = spec[self.path.split("?", 1)[0]]
+        if entry is None:
             self.send_response(404)
             self.end_headers()
             return

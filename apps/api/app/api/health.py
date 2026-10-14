@@ -45,6 +45,17 @@ async def version() -> dict[str, str]:
     return {"version": APP_VERSION, "env": settings.app_env}
 
 
+@router.get("/capabilities", summary="Возможности сервера для UI")
+async def capabilities() -> dict[str, bool]:
+    """Сообщает, какие опциональные возможности включены на сервере.
+
+    Нужен интерфейсу, чтобы не показывать неработающие элементы: например,
+    переключатель веб-доступа рендерится только при `web_search=true`.
+    """
+    settings = get_settings()
+    return {"web_search": settings.web_search_enabled}
+
+
 async def _ping_valkey(url: str) -> str:
     """Проверяет Valkey командой PING."""
     try:

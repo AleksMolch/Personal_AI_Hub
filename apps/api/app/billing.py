@@ -329,10 +329,32 @@ async def reconcile_expired_reservations(session: AsyncSession) -> int:
     return cast(CursorResult, result).rowcount or 0
 
 
-def estimate_units(messages_text: str, output_limit: int | None) -> dict:
-    """Оценивает единицы запроса: {input_tokens, output_tokens}."""
+def estimate_units(
+    messages_text: str,
+    output_limit: int | None,
+    reasoning_depth: object | None = None,
+) -> dict:
+    """Оценивает единицы запроса: {input_tokens, output_tokens}.
+
+    Токены рассуждений тарифицируются как выходные и расходуют тот же лимит
+    вывода, поэтому при выбранной глубине рассуждений оценку нельзя делать по
+    маленькому значению по умолчанию: резерв окажется заниженным и бюджет
+    пропустит запрос, который фактически стоит дороже. При глубине medium/high
+    берём верхнюю границу вывода модели (если она известна).
+
+    Args:
+        messages_text: Текст запроса и истории (для оценки входных токенов).
+        output_limit: Лимит вывода модели, если провайдер его сообщил.
+        reasoning_depth: Выбранная глубина рассуждений (ReasoningDepth) или None.
+
+    Returns:
+        Словарь с оценкой input_tokens и output_tokens.
+    """
     input_tokens = estimate_tokens(messages_text)
     output_tokens = output_limit or DEFAULT_OUTPUT_TOKENS
+    # Значение StrEnum сравнивается со строкой напрямую.
+    if reasoning_depth in ("medium", "high") and output_limit:
+        output_tokens = output_limit
     return {"input_tokens": input_tokens, "output_tokens": output_tokens}
 
 

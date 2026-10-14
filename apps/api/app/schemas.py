@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -125,6 +126,9 @@ class ModelProfileOut(BaseModel):
     context_limit: int | None
     output_limit: int | None
     enabled: bool
+    # Задана ли для модели хотя бы одна цена (PriceSnapshot). Без цены платный
+    # вызов не выполняется, поэтому UI обязан предупредить пользователя заранее.
+    has_price: bool = False
 
 
 # ---- Conversations ----------------------------------------------------------
@@ -176,6 +180,34 @@ class ConversationDetail(ConversationOut):
 class MessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=200_000)
     model_profile_id: uuid.UUID | None = None
+    # Глубина рассуждений. Допустимые значения — нормализованный минимум,
+    # переносимый между OpenAI-совместимыми провайдерами (openai_compatible →
+    # reasoning_effort, openrouter → reasoning.effort). Значение принимается
+    # только для моделей с capability `reasoning`; иначе запрос отклоняется,
+    # чтобы селектор в UI не мог оказаться декоративным.
+    reasoning_depth: Literal["low", "medium", "high"] | None = None
+    # Обосновать ответ результатами веб-поиска. Доступно только если на сервере
+    # включён `WEB_SEARCH_ENABLED`; иначе запрос отклоняется с понятной ошибкой.
+    web_search: bool = False
+
+
+class WebCitationOut(BaseModel):
+    """Источник под ответом модели: та же нумерация, что в маркерах `[n]`."""
+
+    index: int
+    title: str
+    url: str
+    snippet: str
+
+
+class SystemCapabilities(BaseModel):
+    """Возможности сервера, влияющие на состав элементов интерфейса.
+
+    Отдаётся отдельным эндпоинтом, чтобы UI не показывал неработающие
+    переключатели: если веб-поиск выключен на сервере, элемент не рендерится.
+    """
+
+    web_search: bool
 
 
 class MessageCreateResponse(BaseModel):

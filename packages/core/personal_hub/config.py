@@ -57,6 +57,22 @@ class Settings(BaseSettings):
     # Таймаут распознавания одной страницы, секунд; 0 недопустим.
     ocr_page_timeout_seconds: float = Field(default=30.0, gt=0)
 
+    # Веб-поиск для обоснования ответов модели (опционально).
+    # По умолчанию выключен: требует отдельного сервиса SearXNG (профиль
+    # `search` в compose.yaml). Пока выключен, переключатель веб-доступа в UI
+    # не показывается — неработающих элементов интерфейса быть не должно.
+    web_search_enabled: bool = False
+    web_search_provider: str = "searxng"
+    searxng_url: str = "http://searxng:8080"
+    searxng_timeout_seconds: float = Field(default=10.0, gt=0)
+    # Сколько результатов поиска попадает в контекст модели.
+    web_search_max_results: int = Field(default=5, ge=1, le=20)
+    # Ограничение длины сниппета одного источника: поисковики отдают целые
+    # страницы, и без лимита вход запроса становится непредсказуемым по цене.
+    web_search_max_context_chars: int = Field(default=2000, ge=200, le=20000)
+    # Список движков SearXNG через запятую; пусто — выбор самого SearXNG.
+    web_search_engines: str = ""
+
     # Логирование и тесты.
     log_level: str = "INFO"
     run_live_tests: bool = False

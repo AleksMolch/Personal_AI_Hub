@@ -21,10 +21,30 @@ class Capability(StrEnum):
     VISION = "vision"
     EMBEDDINGS = "embeddings"
     STRUCTURED_OUTPUT = "structured_output"
+    # Модель принимает параметр управления глубиной рассуждений.
+    # Признак приходит от провайдера (например, OpenRouter публикует
+    # `supported_parameters: ["reasoning", ...]`), а не выводится из названия
+    # модели: UI обязан скрывать селектор, если возможности нет.
+    REASONING = "reasoning"
     # Зарезервированы для Этапа 2.
     VIDEO_TEXT = "video_text"
     VIDEO_IMAGE = "video_image"
     VIDEO_EDIT = "video_edit"
+
+
+class ReasoningDepth(StrEnum):
+    """Нормализованная глубина рассуждений модели.
+
+    Три уровня выбраны как переносимый минимум: OpenAI принимает их в
+    `reasoning_effort` напрямую, OpenRouter — в `reasoning.effort`, DeepSeek
+    документирует отображение своих значений на эти три. Более узкие уровни
+    (`minimal`, `none`) намеренно не входят в v1: они поддержаны не всеми
+    моделями и добавили бы ветвления без пользы.
+    """
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
 
 
 @dataclass(frozen=True)
@@ -93,6 +113,13 @@ class ChatRequest:
     system: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
+    # Глубина рассуждений. Адаптер отправляет её только если модель объявила
+    # capability REASONING; иначе параметр молча игнорируется, чтобы не
+    # получить 400 от провайдера на модели без поддержки.
+    reasoning_depth: ReasoningDepth | None = None
+    # Возможности модели (capabilities из ModelProfile). Нужны адаптеру, чтобы
+    # решать, какие поля класть в тело запроса, не заглядывая в имя модели.
+    model_capabilities: list[str] = field(default_factory=list)
 
 
 @dataclass

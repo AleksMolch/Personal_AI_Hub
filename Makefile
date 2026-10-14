@@ -5,7 +5,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 PYTHON := python3
 
-.PHONY: help bootstrap up down status logs lint typecheck test test-unit test-integration test-live test-e2e smoke backup restore migrate-check migrate health doctor up-litellm down-litellm
+.PHONY: help bootstrap up down status logs lint typecheck test test-unit test-integration test-live test-e2e smoke backup restore migrate-check migrate health doctor up-litellm down-litellm up-search down-search
 
 help: ## Список команд
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -45,6 +45,14 @@ up-litellm: ## Запуск опционального LiteLLM proxy (ADR-0004)
 
 down-litellm: ## Остановка опционального LiteLLM proxy
 	$(COMPOSE) --profile litellm down litellm
+
+up-search: ## Запуск SearXNG для веб-поиска (ADR-0005)
+	@test -f .env || { echo "Сначала выполните: make bootstrap"; exit 1; }
+	$(COMPOSE) --profile search up -d searxng
+	@echo "SearXNG: http://127.0.0.1:$${SEARXNG_PORT:-8888}/ (включите WEB_SEARCH_ENABLED=1 и перезапустите api)"
+
+down-search: ## Остановка SearXNG
+	$(COMPOSE) --profile search down searxng
 
 ## ---- Качество кода ---------------------------------------------------------
 
