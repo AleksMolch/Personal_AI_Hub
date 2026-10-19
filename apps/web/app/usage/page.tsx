@@ -306,7 +306,7 @@ export default function UsagePage() {
   return (
     <AppShell
       title="Расходы"
-      description="Траты, токены, лимиты и курсы валют — контроль стоимости запросов."
+      description="Траты, токены и лимиты. Это расчёт по токенам и сохранённому прайсу, а не счёт провайдера."
       actions={
         <Button variant="outline" size="sm" onClick={() => void load()}>
           Обновить

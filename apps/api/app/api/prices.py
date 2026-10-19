@@ -1,6 +1,8 @@
 """Эндпоинты цен моделей (versioned PriceSnapshot).
 
-POST создаёт новый снапшот; GET возвращает историю цен модели.
+POST создаёт новый снапшот; GET возвращает историю цен модели. Отдельный
+эндпоинт `/prices/extract` разбирает страницу тарифов провайдера и возвращает
+кандидатов на цены — БЕЗ сохранения: значения обязан подтвердить пользователь.
 """
 from __future__ import annotations
 
@@ -9,11 +11,23 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from personal_hub.db.engine import get_session
 from personal_hub.models import ModelProfile, PriceSnapshot, ProviderCredential, User
+from personal_hub.pricing_import import (
+    PriceImportError,
+    extract_price_candidates,
+    fetch_pricing_page,
+    html_to_lines,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_current_user
-from app.schemas import PriceCreate, PriceOut
+from app.schemas import (
+    PriceCreate,
+    PriceImportCandidate,
+    PriceImportRequest,
+    PriceImportResult,
+    PriceOut,
+)
 
 router = APIRouter(prefix="/api/v1/prices", tags=["prices"])
 
@@ -55,6 +69,62 @@ async def list_prices(
         stmt = stmt.where(PriceSnapshot.model_profile_id.in_(subq))
     result = await session.execute(stmt.limit(200))
     return [PriceOut.model_validate(p) for p in result.scalars().all()]
+
+
+@router.post("/extract", response_model=PriceImportResult)
+async def extract_prices(
+    payload: PriceImportRequest,
+    user: User = Depends(get_current_user),
+) -> PriceImportResult:
+    """Разбирает страницу тарифов и возвращает кандидатов на цены.
+
+    Ничего не сохраняет: провайдеры не дают машинно-читаемого контракта на
+    страницу тарифов, поэтому найденные значения — только подсказка. Пользователь
+    обязан сверить их со страницей и подтвердить через `POST /prices`.
+
+    Args:
+        payload: Адрес страницы тарифов.
+        user: Текущий пользователь (эндпоинт доступен только авторизованным).
+
+    Returns:
+        Кандидаты с фрагментами текста и напоминанием о проверке.
+
+    Raises:
+        HTTPException: 400 при некритичных ошибках (редирект, размер, HTML-код);
+            502 при недоступности сайта; 403 при попытке загрузить внутренний
+            адрес.
+    """
+    try:
+        html = await fetch_pricing_page(payload.url)
+    except PriceImportError as exc:
+        status_code = {
+            "PRICE_IMPORT_FORBIDDEN_HOST": status.HTTP_403_FORBIDDEN,
+            "PRICE_IMPORT_UNREACHABLE": status.HTTP_502_BAD_GATEWAY,
+            "PRICE_IMPORT_TIMEOUT": status.HTTP_502_BAD_GATEWAY,
+        }.get(exc.code, status.HTTP_400_BAD_REQUEST)
+        raise HTTPException(status_code, f"{exc.message} ({exc.code})") from exc
+
+    lines = html_to_lines(html)
+    candidates = extract_price_candidates("\n".join(lines))
+
+    return PriceImportResult(
+        source_url=payload.url,
+        candidates=[
+            PriceImportCandidate(
+                field=candidate.field,
+                value=candidate.value,
+                snippet=candidate.snippet,
+                confidence=candidate.confidence,
+            )
+            for candidate in candidates
+        ],
+        note=(
+            "Значения найдены автоматически и могут быть неверными: страницы "
+            "тарифов меняются, а единицы измерения у провайдеров различаются. "
+            "Сверьте каждое значение со страницей провайдера и только потом "
+            "сохраняйте цену."
+        ),
+    )
 
 
 @router.post("", response_model=PriceOut, status_code=status.HTTP_201_CREATED)

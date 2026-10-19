@@ -115,28 +115,39 @@ async def test_capabilities_reports_web_search_state(client: AsyncClient) -> Non
 
 @pytest.mark.asyncio
 async def test_web_search_disabled_returns_clear_error(
-    client: AsyncClient, mock_provider
+    client: AsyncClient, mock_provider, monkeypatch
 ) -> None:
     """Флаг web_search при выключенной возможности даёт понятную ошибку.
 
     Молча игнорировать флаг нельзя: пользователь считал бы, что ответ
-    обоснован источниками.
+    обоснован источниками. Настройки кэшированы, поэтому состояние задаётся
+    явно: иначе тест зависел бы от `.env` на машине разработчика (и падал,
+    если там включён веб-поиск).
     """
-    models = json.dumps({"data": [{"id": "m1", "name": "Model 1"}]})
-    headers, model_id = await _setup(client, mock_provider, models)
-    conversation = await client.post(
-        "/api/v1/conversations", json={"title": "T"}, headers=headers
-    )
-    conversation_id = conversation.json()["id"]
+    monkeypatch.setenv("WEB_SEARCH_ENABLED", "0")
+    get_settings.cache_clear()
+    try:
+        models = json.dumps({"data": [{"id": "m1", "name": "Model 1"}]})
+        headers, model_id = await _setup(client, mock_provider, models)
+        conversation = await client.post(
+            "/api/v1/conversations", json={"title": "T"}, headers=headers
+        )
+        conversation_id = conversation.json()["id"]
 
-    resp = await client.post(
-        f"/api/v1/conversations/{conversation_id}/messages",
-        json={"content": "вопрос", "model_profile_id": model_id, "web_search": True},
-        headers=headers,
-    )
+        resp = await client.post(
+            f"/api/v1/conversations/{conversation_id}/messages",
+            json={
+                "content": "вопрос",
+                "model_profile_id": model_id,
+                "web_search": True,
+            },
+            headers=headers,
+        )
 
-    assert resp.status_code == 400
-    assert "WEB_SEARCH_ENABLED" in resp.json()["error"]["message"]
+        assert resp.status_code == 400
+        assert "WEB_SEARCH_ENABLED" in resp.json()["error"]["message"]
+    finally:
+        get_settings.cache_clear()
 
 
 @pytest.mark.asyncio

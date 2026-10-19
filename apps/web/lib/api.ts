@@ -346,7 +346,35 @@ export interface Price {
   currency: string;
   input_per_million: string;
   output_per_million: string;
+  /** Тариф попадания в кэш (cache hit); null — отдельного тарифа нет. */
+  cache_read_per_million: string | null;
+  /** Тариф записи в кэш (Anthropic-style); null — не применяется. */
+  cache_write_per_million: string | null;
+  source: string;
   effective_at: string;
+}
+
+/**
+ * Кандидат на цену, найденный на странице тарифов провайдера.
+ *
+ * Значение требует проверки пользователем: провайдеры не дают
+ * машинно-читаемого контракта на страницу тарифов.
+ */
+export interface PriceImportCandidate {
+  field:
+    | "input_per_million"
+    | "output_per_million"
+    | "cache_read_per_million"
+    | "cache_write_per_million";
+  value: string;
+  snippet: string;
+  confidence: number;
+}
+
+export interface PriceImportResult {
+  source_url: string;
+  candidates: PriceImportCandidate[];
+  note: string;
 }
 
 export interface FxRate {
@@ -404,6 +432,21 @@ export const api = {
       method: "POST",
     }),
   models: () => request<ModelProfile[]>("/api/v1/models"),
+  /**
+   * Уточняет возможности модели вручную.
+   *
+   * Нужно, когда провайдер не рекламирует поддержку параметра в `/models`:
+   * например, DeepSeek принимает `reasoning_effort`, но не перечисляет его.
+   *
+   * @param id Идентификатор профиля модели.
+   * @param capabilities Полный набор объявляемых возможностей.
+   * @returns Обновлённый профиль модели.
+   */
+  updateModelCapabilities: (id: string, capabilities: string[]) =>
+    request<ModelProfile>(`/api/v1/models/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ capabilities }),
+    }),
   conversations: () => request<Conversation[]>("/api/v1/conversations"),
   createConversation: (input: { title?: string; model_profile_id?: string }) =>
     request<Conversation>("/api/v1/conversations", {
@@ -522,11 +565,29 @@ export const api = {
     request<Price[]>(
       `/api/v1/prices?model_profile_id=${encodeURIComponent(modelProfileId)}`,
     ),
+  /**
+   * Разбирает страницу тарифов провайдера и возвращает кандидатов на цены.
+   *
+   * Ничего не сохраняет: найденные значения пользователь проверяет и вносит
+   * вручную, потому что разбор страницы эвристический.
+   *
+   * @param url Публичный адрес страницы тарифов.
+   * @returns Кандидаты с фрагментами текста и напоминанием о проверке.
+   */
+  extractPrices: (url: string) =>
+    request<PriceImportResult>("/api/v1/prices/extract", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    }),
   createPrice: (input: {
     model_profile_id: string;
     input_per_million: string;
     output_per_million: string;
     currency: string;
+    /** Тариф попадания в кэш (cache hit). Не задан — вход по обычной цене. */
+    cache_read_per_million?: string | null;
+    /** Тариф записи в кэш (Anthropic-style). */
+    cache_write_per_million?: string | null;
   }) =>
     request<Price>("/api/v1/prices", {
       method: "POST",

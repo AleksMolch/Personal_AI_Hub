@@ -61,6 +61,26 @@ services:
       BLOB_STORE_DRIVER: ${BLOB_STORE_DRIVER:-local}
       BLOB_LOCAL_ROOT: ${BLOB_LOCAL_ROOT:-/data/assets}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      VECTOR_STORE_DRIVER: ${VECTOR_STORE_DRIVER:-qdrant}
+      # OCR-настройки из .env: без явной передачи контейнер их не видит, и
+      # значения из документации (OCR_BACKEND и лимиты) не применяются.
+      OCR_BACKEND: ${OCR_BACKEND:-tesseract}
+      OCR_LANGUAGES: ${OCR_LANGUAGES:-rus,eng}
+      OCR_MAX_PAGES: ${OCR_MAX_PAGES:-40}
+      OCR_MAX_IMAGE_SIDE: ${OCR_MAX_IMAGE_SIDE:-3500}
+      OCR_MAX_IMAGE_PIXELS: ${OCR_MAX_IMAGE_PIXELS:-50000000}
+      OCR_PAGE_TIMEOUT_SECONDS: ${OCR_PAGE_TIMEOUT_SECONDS:-30.0}
+      # Веб-поиск (ADR-0005): выключен, пока WEB_SEARCH_ENABLED=0.
+      WEB_SEARCH_ENABLED: ${WEB_SEARCH_ENABLED:-0}
+      WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-searxng}
+      SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
+      SEARXNG_TIMEOUT_SECONDS: ${SEARXNG_TIMEOUT_SECONDS:-10.0}
+      WEB_SEARCH_MAX_RESULTS: ${WEB_SEARCH_MAX_RESULTS:-5}
+      WEB_SEARCH_MAX_CONTEXT_CHARS: ${WEB_SEARCH_MAX_CONTEXT_CHARS:-2000}
+      WEB_SEARCH_ENGINES: ${WEB_SEARCH_ENGINES:-}
+      # Опциональное автосоздание администратора при пустой БД.
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     volumes:
       - assets:/data/assets
     ports:
@@ -94,6 +114,13 @@ services:
       BLOB_STORE_DRIVER: ${BLOB_STORE_DRIVER:-local}
       BLOB_LOCAL_ROOT: ${BLOB_LOCAL_ROOT:-/data/assets}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Worker выполняет OCR при индексации: настройки нужны и здесь.
+      OCR_BACKEND: ${OCR_BACKEND:-tesseract}
+      OCR_LANGUAGES: ${OCR_LANGUAGES:-rus,eng}
+      OCR_MAX_PAGES: ${OCR_MAX_PAGES:-40}
+      OCR_MAX_IMAGE_SIDE: ${OCR_MAX_IMAGE_SIDE:-3500}
+      OCR_MAX_IMAGE_PIXELS: ${OCR_MAX_IMAGE_PIXELS:-50000000}
+      OCR_PAGE_TIMEOUT_SECONDS: ${OCR_PAGE_TIMEOUT_SECONDS:-30.0}
     volumes:
       - assets:/data/assets
     depends_on:

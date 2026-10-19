@@ -177,10 +177,10 @@ export function CostBadge({
           <div className="space-y-0.5 text-sm">
             <p className="font-medium">
               {isEstimated
-                ? "Оценка (провайдер не вернул usage)"
+                ? "Ориентировочная оценка (провайдер не вернул usage)"
                 : status === "reconciled"
-                  ? "Стоимость сверена"
-                  : "Фактическая стоимость"}
+                  ? "Стоимость сверена с провайдером"
+                  : "Расчёт по usage провайдера"}
             </p>
             {tokensIn !== undefined && (
               <p>Вход: {tokensIn.toLocaleString("ru-RU")} токенов</p>
@@ -193,11 +193,11 @@ export function CostBadge({
                 из них рассуждения: {reasoningTokens.toLocaleString("ru-RU")}
               </p>
             )}
-            {isEstimated && (
-              <p className="text-muted-foreground text-xs">
-                Точная стоимость будет доступна после ответа провайдера
-              </p>
-            )}
+            <p className="text-muted-foreground text-xs">
+              {isEstimated
+                ? "Точная стоимость станет известна после ответа провайдера."
+                : "Это расчёт по токенам и сохранённому прайсу, а не счёт провайдера: тарифы меняются, а у части провайдеров зависят от времени суток (пиковые часы дороже)."}
+            </p>
           </div>
         </TooltipContent>
       </Tooltip>

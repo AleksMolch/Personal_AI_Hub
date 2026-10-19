@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -155,6 +155,45 @@ class ModelProfileOut(BaseModel):
     has_price: bool = False
 
 
+class ModelUpdate(BaseModel):
+    """Ручное уточнение свойств модели пользователем.
+
+    Провайдер не всегда рекламирует свои возможности: например, DeepSeek
+    принимает `reasoning_effort`, но в ответе `/models` не перечисляет
+    поддерживаемые параметры. Чтобы интерфейс не оставался без функции,
+    пользователь может объявить capability явно — это данные, а не ветка по
+    названию модели.
+
+    Разрешён только ограниченный набор значений: неизвестные отбрасываются,
+    чтобы в JSONB не попадал произвольный мусор.
+    """
+
+    #: Допустимые capabilities для ручного управления.
+    ALLOWED: ClassVar[frozenset[str]] = frozenset(
+        {
+            "reasoning",
+            "tools",
+            "vision",
+            "structured_output",
+        }
+    )
+
+    capabilities: list[str] | None = Field(default=None)
+
+    @field_validator("capabilities")
+    @classmethod
+    def _check_capabilities(cls, value: list[str] | None) -> list[str] | None:
+        """Проверяет, что переданы только известные возможности."""
+        if value is None:
+            return None
+        unknown = sorted(set(value) - cls.ALLOWED)
+        if unknown:
+            raise ValueError(
+                "неизвестные capabilities: " + ", ".join(unknown)
+            )
+        return sorted(set(value))
+
+
 # ---- Conversations ----------------------------------------------------------
 
 
@@ -284,6 +323,33 @@ class PriceCreate(BaseModel):
     def _normalize_prices(cls, value: object) -> object:
         """Принимает цену с запятой: `0,022` из формы равно `0.022`."""
         return _normalize_decimal_input(value)
+
+
+class PriceImportRequest(BaseModel):
+    """Запрос разбора страницы тарифов провайдера."""
+
+    url: str = Field(min_length=8, max_length=2048)
+
+
+class PriceImportCandidate(BaseModel):
+    """Кандидат на цену, найденный на странице; требует подтверждения."""
+
+    field: str
+    value: Decimal
+    snippet: str
+    confidence: float
+
+
+class PriceImportResult(BaseModel):
+    """Результат разбора: кандидаты и напоминание проверить их.
+
+    Ничего не сохраняется: значения попадают в форму, пользователь сверяет их
+    со страницей и только потом нажимает «Сохранить».
+    """
+
+    source_url: str
+    candidates: list[PriceImportCandidate]
+    note: str
 
 
 class PriceOut(BaseModel):

@@ -30,18 +30,49 @@ def _money(value: Decimal) -> Decimal:
 
 
 def compute_cost(units: dict, price: PriceSnapshot) -> Decimal:
-    """Вычисляет стоимость генерации по токенам и цене (за 1M токенов)."""
+    """Вычисляет стоимость генерации по токенам и цене (за 1M токенов).
+
+    Учитывает три оси тарификации, которые есть у многих провайдеров
+    (например, DeepSeek): вход по цене cache miss, вход по цене cache hit и
+    выход. Это принципиально для точности: `input_tokens` (prompt_tokens)
+    ВКЛЮЧАЕТ кэшированные токены, поэтому начислять их и по цене входа, и по
+    цене кэша нельзя — получается двойное списание.
+
+    Правило:
+    - если цена cache hit задана, кэшированные токены вычитаются из входных и
+      оплачиваются по своей цене;
+    - если цена cache hit НЕ задана, все входные токены идут по обычной цене
+      (провайдер не сообщил отдельный тариф — не выдумываем скидку);
+    - cache write (Anthropic-style) приходит отдельным полем и НЕ входит в
+      prompt_tokens, поэтому начисляется дополнительно.
+
+    Args:
+        units: Токены из usage провайдера (`input_tokens`, `output_tokens`,
+            `cache_read_tokens`, `cache_write_tokens`).
+        price: Снимок цены модели.
+
+    Returns:
+        Стоимость, квантованная до 8 знаков.
+    """
     input_tokens = Decimal(int(units.get("input_tokens", 0)))
     output_tokens = Decimal(int(units.get("output_tokens", 0)))
     cache_read = Decimal(int(units.get("cache_read_tokens", 0)))
+    cache_write = Decimal(int(units.get("cache_write_tokens", 0)))
 
-    cost = (
-        price.input_per_million * input_tokens
-        + price.output_per_million * output_tokens
-    ) / TOKENS_PER_MILLION
+    # cache_read не может превысить вход: защита от противоречивого usage.
+    cache_read = min(cache_read, input_tokens)
+    billable_input = input_tokens
 
-    if price.cache_read_per_million is not None:
+    cost = Decimal(0)
+    if price.cache_read_per_million is not None and cache_read > 0:
+        billable_input = input_tokens - cache_read
         cost += price.cache_read_per_million * cache_read / TOKENS_PER_MILLION
+
+    cost += price.input_per_million * billable_input / TOKENS_PER_MILLION
+    cost += price.output_per_million * output_tokens / TOKENS_PER_MILLION
+
+    if price.cache_write_per_million is not None and cache_write > 0:
+        cost += price.cache_write_per_million * cache_write / TOKENS_PER_MILLION
 
     return _money(cost)
 
@@ -80,8 +111,20 @@ def parse_usage(usage: dict | None) -> dict:
     cached = details.get("cached_tokens")
     if cached is None:
         cached = usage.get("cache_read_input_tokens")
+    if cached is None:
+        # DeepSeek отдаёт попадания в кэш плоским полем
+        # `prompt_cache_hit_tokens` (проверено по документации провайдера:
+        # prompt_tokens = prompt_cache_hit_tokens + prompt_cache_miss_tokens).
+        # Без этого фолбэка кэш-тариф не применялся бы вовсе.
+        cached = usage.get("prompt_cache_hit_tokens")
     if cached is not None:
         units["cache_read_tokens"] = int(cached)
+
+    # Промахи кэша: у DeepSeek это отдельное поле, равное остатку входа.
+    # Храним для прозрачности расчёта; на стоимость влияет через input_tokens.
+    cache_miss = usage.get("prompt_cache_miss_tokens")
+    if cache_miss is not None:
+        units["cache_miss_tokens"] = int(cache_miss)
 
     # Кэш на запись (Anthropic-style) приходит отдельным блоком.
     cache_creation = usage.get("cache_creation_input_tokens")

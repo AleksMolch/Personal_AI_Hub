@@ -199,19 +199,34 @@ def create_app() -> FastAPI:
 
         Сообщение «Некорректные данные запроса.» без деталей бесполезно: по нему
         нельзя понять, какое поле исправить (реальная жалоба при вводе цены).
-        Поэтому в `details.fields` перечисляются пути полей и причина отказа.
-        Сами введённые значения не эхоируются, чтобы не отражать пользовательский
-        ввод в ответах и логах.
+        Поэтому в `details.fields` перечисляются пути полей и причина отказа, а в
+        текст сообщения попадает первая понятная причина.
+
+        Для собственных валидаторов Pydantic добавляет префикс «Value error, »;
+        он срезается, чтобы пользователь увидел наше русское пояснение. Встроенные
+        сообщения Pydantic остаются как есть — они технические, но точные.
+        Сами введённые значения не эхоируются.
         """
-        fields = [
-            {
-                "field": ".".join(str(part) for part in err.get("loc", ()) if part != "body"),
-                "reason": err.get("msg", ""),
-            }
-            for err in exc.errors()
-        ]
+        fields = []
+        custom_reason: str | None = None
+        for err in exc.errors():
+            reason = str(err.get("msg", ""))
+            if reason.startswith("Value error, "):
+                reason = reason[len("Value error, ") :]
+                custom_reason = custom_reason or reason
+            fields.append(
+                {
+                    "field": ".".join(
+                        str(part) for part in err.get("loc", ()) if part != "body"
+                    ),
+                    "reason": reason,
+                }
+            )
+
         message = "Некорректные данные запроса."
-        if fields:
+        if custom_reason:
+            message = f"Некорректные данные запроса: {custom_reason}."
+        elif fields:
             names = ", ".join(item["field"] for item in fields if item["field"])
             if names:
                 message = f"Некорректные данные запроса: {names}."
