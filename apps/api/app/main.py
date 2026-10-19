@@ -195,9 +195,29 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
+        """Возвращает стабильный код ошибки и перечень проблемных полей.
+
+        Сообщение «Некорректные данные запроса.» без деталей бесполезно: по нему
+        нельзя понять, какое поле исправить (реальная жалоба при вводе цены).
+        Поэтому в `details.fields` перечисляются пути полей и причина отказа.
+        Сами введённые значения не эхоируются, чтобы не отражать пользовательский
+        ввод в ответах и логах.
+        """
+        fields = [
+            {
+                "field": ".".join(str(part) for part in err.get("loc", ()) if part != "body"),
+                "reason": err.get("msg", ""),
+            }
+            for err in exc.errors()
+        ]
+        message = "Некорректные данные запроса."
+        if fields:
+            names = ", ".join(item["field"] for item in fields if item["field"])
+            if names:
+                message = f"Некорректные данные запроса: {names}."
         return JSONResponse(
             status_code=422,
-            content=_error_payload("VALIDATION_ERROR", "Некорректные данные запроса.", False),
+            content=_error_payload("VALIDATION_ERROR", message, False, {"fields": fields}),
         )
 
     @app.exception_handler(BudgetExceededError)

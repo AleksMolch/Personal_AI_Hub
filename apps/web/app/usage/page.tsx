@@ -50,6 +50,8 @@ import {
   Budget,
   FxRate,
   getToken,
+  isValidDecimal,
+  normalizeDecimalInput,
   setToken,
   UsageRecord,
   UsageSummary,
@@ -215,10 +217,21 @@ export default function UsagePage() {
     e.preventDefault();
     setError(null);
     setSaved(false);
+    // Запятая — обычный десятичный разделитель в русской локали; backend
+    // принимает оба варианта, но нормализуем заранее, чтобы не зависеть от него.
+    const dailyLimit = normalizeDecimalInput(daily);
+    const monthlyLimit = normalizeDecimalInput(monthly);
+    if (
+      (dailyLimit && !isValidDecimal(dailyLimit)) ||
+      (monthlyLimit && !isValidDecimal(monthlyLimit))
+    ) {
+      setError("Лимит должен быть неотрицательным числом, например 5 или 5,5.");
+      return;
+    }
     try {
       await api.updateBudget({
-        daily_limit: daily || null,
-        monthly_limit: monthly || null,
+        daily_limit: dailyLimit || null,
+        monthly_limit: monthlyLimit || null,
       });
       setSaved(true);
       await load();
@@ -252,15 +265,23 @@ export default function UsagePage() {
   async function onAddRate(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!rate.trim()) {
+    // Курс тоже принимаем с запятой: «0,011» — естественный ввод.
+    const normalizedRate = normalizeDecimalInput(rate);
+    if (!normalizedRate) {
       setError("Укажите курс.");
+      return;
+    }
+    if (!isValidDecimal(normalizedRate)) {
+      setError(
+        "Курс должен быть положительным числом, например 0.011 или 0,011.",
+      );
       return;
     }
     try {
       await api.createFxRate({
         from_currency: fromCur,
         to_currency: toCur,
-        rate: rate.trim(),
+        rate: normalizedRate,
       });
       setRate("");
       await load();

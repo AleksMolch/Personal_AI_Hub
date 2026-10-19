@@ -175,6 +175,88 @@ async def test_sync_models_imports_pricing(client: AsyncClient, mock_provider) -
     assert len(prices) == 1
 
 
+async def test_price_accepts_comma_decimal_separator(
+    client: AsyncClient, mock_provider
+) -> None:
+    """Цена с запятой сохраняется: «0,022» из русскоязычной формы.
+
+    Регрессия на реальный дефект: пользователь вводил `0,022`, API отвечал 422
+    «Некорректные данные запроса» без указания поля, и сохранить цену было
+    невозможно.
+    """
+    headers = await _auth(client)
+    host, port = mock_provider.server_address
+    mock_provider.spec["/models"] = (
+        200,
+        '{"data": [{"id": "deepseek-flash", "name": "DeepSeek Flash"}]}',
+    )
+    created = await _create_provider(client, headers, base_url=f"http://{host}:{port}")
+    synced = await client.post(
+        f"/api/v1/providers/{created['id']}/sync-models", headers=headers
+    )
+    model_id = synced.json()[0]["id"]
+
+    resp = await client.post(
+        "/api/v1/prices",
+        json={
+            "model_profile_id": model_id,
+            "input_per_million": "0,022",
+            "output_per_million": "1,98",
+            "currency": "USD",
+        },
+        headers=headers,
+    )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    # Значение сохранено точно, без потери разрядов: Decimal, а не float.
+    assert Decimal(body["input_per_million"]) == Decimal("0.022")
+    assert Decimal(body["output_per_million"]) == Decimal("1.98")
+
+    # Каталог сообщает, что цена теперь задана (признак для UI).
+    catalog = (await client.get("/api/v1/models", headers=headers)).json()
+    assert catalog[0]["has_price"] is True
+
+
+async def test_validation_error_names_the_field(client: AsyncClient) -> None:
+    """Ошибка валидации называет проблемное поле, а не только «некорректные данные».
+
+    Без имени поля пользователь не понимает, что исправить (жалоба при вводе
+    цены). Значения из запроса в ответ не эхоируются.
+    """
+    headers = await _auth(client)
+    resp = await client.post(
+        "/api/v1/prices",
+        json={
+            "model_profile_id": "00000000-0000-0000-0000-000000000000",
+            "input_per_million": "дорого",
+            "output_per_million": "1.0",
+        },
+        headers=headers,
+    )
+
+    assert resp.status_code == 422
+    error = resp.json()["error"]
+    assert error["code"] == "VALIDATION_ERROR"
+    assert "input_per_million" in error["message"]
+    assert error["details"]["fields"]
+
+
+async def test_budget_accepts_comma_decimal_separator(client: AsyncClient) -> None:
+    """Лимит бюджета тоже принимает запятую: «5,5» это 5.5."""
+    headers = await _auth(client)
+
+    resp = await client.put(
+        "/api/v1/budgets",
+        json={"daily_limit": "5,5", "monthly_limit": "50,25"},
+        headers=headers,
+    )
+
+    assert resp.status_code == 200
+    assert Decimal(resp.json()["daily_limit"]) == Decimal("5.5")
+    assert Decimal(resp.json()["monthly_limit"]) == Decimal("50.25")
+
+
 async def test_sync_models_does_not_override_manual_price(
     client: AsyncClient, mock_provider
 ) -> None:

@@ -28,6 +28,35 @@ export class ApiError extends Error {
 }
 
 /**
+ * Приводит введённое пользователем число к формату с точкой.
+ *
+ * Русская локаль использует запятую как десятичный разделитель, поэтому
+ * пользователь пишет «0,022». JSON и Decimal ожидают точку — без нормализации
+ * запрос отклоняется (422). Пробелы, включая неразрывные, удаляются: их
+ * используют как разделители тысяч.
+ *
+ * @param value Сырое значение из поля ввода.
+ * @returns Строка с точкой либо пустая строка, если ввести нечего.
+ */
+export function normalizeDecimalInput(value: string): string {
+  const cleaned = value
+    .trim()
+    .replace(/\u00a0/g, "")
+    .replace(/\s/g, "");
+  return cleaned.replace(/,/g, ".");
+}
+
+/**
+ * Проверяет, что строка — неотрицательное десятичное число.
+ *
+ * @param value Значение после `normalizeDecimalInput`.
+ * @returns true, если значение можно отправить на backend.
+ */
+export function isValidDecimal(value: string): boolean {
+  return /^\d+(\.\d+)?$/.test(value);
+}
+
+/**
  * Выполняет fetch и превращает сетевой сбой в понятную ошибку.
  *
  * Без этого браузерный `TypeError: Failed to fetch` доходил до пользователя

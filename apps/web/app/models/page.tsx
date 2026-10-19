@@ -32,7 +32,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, getToken, ModelProfile, Price, setToken } from "@/lib/api";
+import {
+  api,
+  getToken,
+  isValidDecimal,
+  ModelProfile,
+  normalizeDecimalInput,
+  Price,
+  setToken,
+} from "@/lib/api";
 
 /** Текст пустого состояния: формулировка должна совпадать дословно. */
 const EMPTY_MODELS_TEXT =
@@ -47,6 +55,23 @@ const PRICE_TEXT_CLASS = {
   set: "text-pah-sm text-foreground",
   missing: "text-pah-sm text-cost-unknown",
 } as const;
+
+/**
+ * Форматирует цену, убирая хвостовые нули.
+ *
+ * Backend хранит деньги как `NUMERIC(20,8)` и отдаёт Decimal строкой
+ * («0.02200000»). Показывать восемь знаков после запятой бессмысленно — это
+ * шум, который мешает прочитать цену. Работаем со строкой, а не с числом,
+ * чтобы не потерять точность на пути к отображению.
+ *
+ * @param value Денежное значение в виде Decimal-строки.
+ * @returns Строка без хвостовых нулей: «0.022», «1.98», «10».
+ */
+function formatPrice(value: string): string {
+  if (!value.includes(".")) return value;
+  const trimmed = value.replace(/0+$/, "").replace(/\.$/, "");
+  return trimmed === "" ? "0" : trimmed;
+}
 
 /** Ключи для трёх карточек-заглушек (фиксированные, без индексов массива). */
 const SKELETON_KEYS = ["first", "second", "third"] as const;
@@ -104,7 +129,7 @@ function ModelPriceCard({
       <CardContent className="flex flex-col gap-4">
         <p className={price ? PRICE_TEXT_CLASS.set : PRICE_TEXT_CLASS.missing}>
           {price
-            ? `Текущая цена: $${price.input_per_million} / $${price.output_per_million} за 1M токенов (вход/выход)`
+            ? `Текущая цена: $${formatPrice(price.input_per_million)} / $${formatPrice(price.output_per_million)} за 1M токенов (вход/выход)`
             : MISSING_PRICE_TEXT}
         </p>
 
@@ -260,10 +285,18 @@ export default function ModelsPage() {
     e.preventDefault();
     setError(null);
     setSaved(null);
-    const input = inputs[model.id]?.trim();
-    const output = outputs[model.id]?.trim();
+    // Принимаем и запятую (`0,022`), и точку (`0.022`): русская локаль
+    // использует запятую, и без нормализации запрос падал с 422.
+    const input = normalizeDecimalInput(inputs[model.id] ?? "");
+    const output = normalizeDecimalInput(outputs[model.id] ?? "");
     if (!input || !output) {
       setError("Укажите цену входа и выхода.");
+      return;
+    }
+    if (!isValidDecimal(input) || !isValidDecimal(output)) {
+      setError(
+        "Цена должна быть неотрицательным числом, например 0.022 или 0,022.",
+      );
       return;
     }
     try {

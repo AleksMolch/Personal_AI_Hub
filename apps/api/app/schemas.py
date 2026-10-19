@@ -22,6 +22,30 @@ def _validate_base_url(value: str) -> str:
     return value
 
 
+def _normalize_decimal_input(value: object) -> object:
+    """Приводит десятичное значение из формы к формату JSON (точка).
+
+    Русскоязычный пользователь естественно вводит цену как `0,022` — с запятой
+    в качестве десятичного разделителя. `Decimal` и JSON ожидают точку, поэтому
+    без нормализации запрос отклонялся с 422 и невнятным сообщением (реальный
+    дефект, найденный при работе с интерфейсом).
+
+    Нормализация выполняется ДО валидации и только для строк: числа из JSON уже
+    корректны. Пробелы (включая неразрывные, которые используют как разделители
+    тысяч) удаляются, чтобы «1 234,5» тоже принималось.
+
+    Args:
+        value: Исходное значение поля из запроса.
+
+    Returns:
+        Строка с точкой вместо запятой либо исходное значение без изменений.
+    """
+    if not isinstance(value, str):
+        return value
+    cleaned = value.strip().replace("\u00a0", "").replace(" ", "")
+    return cleaned.replace(",", ".") if "," in cleaned else cleaned
+
+
 # ---- Auth -----------------------------------------------------------------
 
 
@@ -232,6 +256,12 @@ class BudgetUpdate(BaseModel):
     monthly_limit: Decimal | None = Field(default=None, ge=0)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
 
+    @field_validator("daily_limit", "monthly_limit", mode="before")
+    @classmethod
+    def _normalize_limits(cls, value: object) -> object:
+        """Принимает лимит с запятой или точкой: `0,5` и `0.5` равнозначны."""
+        return _normalize_decimal_input(value)
+
 
 class PriceCreate(BaseModel):
     model_profile_id: uuid.UUID
@@ -242,6 +272,18 @@ class PriceCreate(BaseModel):
     cache_write_per_million: Decimal | None = Field(default=None, ge=0)
     source: str = Field(default="manual", max_length=16)
     source_url: str | None = Field(default=None, max_length=512)
+
+    @field_validator(
+        "input_per_million",
+        "output_per_million",
+        "cache_read_per_million",
+        "cache_write_per_million",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_prices(cls, value: object) -> object:
+        """Принимает цену с запятой: `0,022` из формы равно `0.022`."""
+        return _normalize_decimal_input(value)
 
 
 class PriceOut(BaseModel):
@@ -434,6 +476,12 @@ class FxRateCreate(BaseModel):
     to_currency: str = Field(min_length=3, max_length=3)
     rate: Decimal = Field(gt=0)
     source: str = Field(default="manual", max_length=64)
+
+    @field_validator("rate", mode="before")
+    @classmethod
+    def _normalize_rate(cls, value: object) -> object:
+        """Принимает курс с запятой: `0,011` из формы равно `0.011`."""
+        return _normalize_decimal_input(value)
 
 
 class FxRateOut(BaseModel):
