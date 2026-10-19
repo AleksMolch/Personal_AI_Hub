@@ -27,6 +27,33 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Выполняет fetch и превращает сетевой сбой в понятную ошибку.
+ *
+ * Без этого браузерный `TypeError: Failed to fetch` доходил до пользователя
+ * как есть. Самый частый случай — несовпадение origin (приложение открыто по
+ * `127.0.0.1`, а API разрешает `localhost`) или незапущенный API; сообщение
+ * должно подсказывать, что проверить, а не показывать техническую строку.
+ *
+ * @param url Полный адрес запроса.
+ * @param init Параметры запроса.
+ * @returns Ответ сервера.
+ * @throws ApiError С кодом `NETWORK_ERROR`, если запрос не выполнен.
+ */
+async function safeFetch(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new ApiError(
+      "NETWORK_ERROR",
+      "Не удалось связаться с API. Проверьте, что стек запущен, и откройте " +
+        "приложение по тому же адресу, что указан в APP_BASE_URL " +
+        "(localhost или 127.0.0.1 — для браузера это разные адреса).",
+      0,
+    );
+  }
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   // Для FormData не задаём Content-Type (браузер добавит boundary сам).
@@ -36,7 +63,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+  const res = await safeFetch(`${API_URL}${path}`, { ...init, headers });
   if (res.status === 204) return undefined as T;
 
   const body = await res.json().catch(() => ({}));
@@ -72,7 +99,7 @@ async function requestBlob(
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+  const res = await safeFetch(`${API_URL}${path}`, { ...init, headers });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     const err = body?.error ?? {};

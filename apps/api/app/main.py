@@ -119,6 +119,34 @@ async def _bootstrap_admin_from_env() -> None:
         logger.info("bootstrap_admin_env", extra={"extra_fields": {"username": username}})
 
 
+def _cors_origins(base_url: str) -> list[str]:
+    """Возвращает разрешённые CORS-origin, включая локальный алиас.
+
+    `localhost` и `127.0.0.1` указывают на одну и ту же локальную машину, но
+    для браузера это РАЗНЫЕ origin. Если разрешить только один вариант,
+    открытие приложения по второму адресу блокирует все запросы к API, включая
+    вход. Поэтому для локального адреса добавляется парный вариант.
+
+    Расширение выполняется только для локальных адресов: внешний домен не
+    получает дополнительных origin, и политика остаётся узкой.
+
+    Args:
+        base_url: Публичный адрес фронтенда из `APP_BASE_URL`.
+
+    Returns:
+        Отсортированный список origin без завершающего слеша.
+    """
+    normalized = base_url.rstrip("/")
+    origins = {normalized}
+    for local, alias in (
+        ("http://localhost", "http://127.0.0.1"),
+        ("http://127.0.0.1", "http://localhost"),
+    ):
+        if normalized.startswith(local):
+            origins.add(alias + normalized[len(local) :])
+    return sorted(origins)
+
+
 def create_app() -> FastAPI:
     """Создаёт и конфигурирует экземпляр FastAPI."""
     settings = get_settings()
@@ -141,9 +169,12 @@ def create_app() -> FastAPI:
     )
 
     # CORS: разрешаем только собственный frontend, не широкий wildcard.
+    # Для локального адреса добавляется парный вариант localhost/127.0.0.1:
+    # иначе вход не работает, если приложение открыли по «другому» локальному
+    # адресу (это реальный дефект, найденный при запуске стека).
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[settings.app_base_url],
+        allow_origins=_cors_origins(settings.app_base_url),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
