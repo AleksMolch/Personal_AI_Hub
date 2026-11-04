@@ -329,6 +329,12 @@ class PriceImportRequest(BaseModel):
     """Запрос разбора страницы тарифов провайдера."""
 
     url: str = Field(min_length=8, max_length=2048)
+    # Режим разбора: static — регулярные выражения (бесплатно, детерминированно),
+    # llm — платный вызов модели, когда вёрстка нестандартная, rendered —
+    # headless-браузер для страниц, где цены дорисовывает JavaScript.
+    method: Literal["static", "llm", "rendered"] = "static"
+    # Модель для режима llm. Пусто — берётся первая модель с заданной ценой.
+    model_profile_id: uuid.UUID | None = None
 
 
 class PriceImportCandidate(BaseModel):
@@ -350,6 +356,11 @@ class PriceImportResult(BaseModel):
     source_url: str
     candidates: list[PriceImportCandidate]
     note: str
+    # Каким способом получены значения: static | llm | rendered. Нужно, чтобы
+    # пользователь понимал, насколько доверять числам и платил ли он за разбор.
+    method: str = "static"
+    # Модель, которой выполнялось LLM-извлечение (для режима llm).
+    llm_model: str | None = None
 
 
 class PriceOut(BaseModel):

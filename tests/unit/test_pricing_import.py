@@ -64,6 +64,45 @@ def test_extract_partial_candidates_from_table() -> None:
         assert candidate.confidence < 1.0
 
 
+def test_extract_rendered_multiline_layout() -> None:
+    """После рендера подпись и цены идут разными строками — разбор их связывает.
+
+    Так выглядит `inner_text` таблицы DeepSeek: заголовок «1M INPUT TOKENS»,
+    ниже уточнение «(CACHE HIT)», ниже значения. Построчный разбор нашёл бы
+    только выход — это был реальный дефект, найденный на живом стенде.
+    """
+    text = "\n".join(
+        [
+            "1M INPUT TOKENS",
+            "(CACHE HIT)",
+            "OFF-PEAK",
+            "$0.003",
+            "$0.022",
+            "PEAK",
+            "$0.006",
+            "$0.044",
+            "1M INPUT TOKENS",
+            "(CACHE MISS)",
+            "OFF-PEAK",
+            "$0.15",
+            "$0.66",
+            "1M OUTPUT TOKENS",
+            "OFF-PEAK",
+            "$0.6",
+            "$1.98",
+        ]
+    )
+
+    pairs = {
+        (candidate.field, candidate.value)
+        for candidate in extract_price_candidates(text)
+    }
+
+    assert (FIELD_CACHE_READ, Decimal("0.003")) in pairs
+    assert (FIELD_INPUT, Decimal("0.15")) in pairs
+    assert (FIELD_OUTPUT, Decimal("0.6")) in pairs
+
+
 def test_extract_skips_prices_without_per_million_unit() -> None:
     """Без указания «за 1M» цена неоднозначна и не предлагается."""
     candidates = extract_price_candidates("input price $0.15 per request")

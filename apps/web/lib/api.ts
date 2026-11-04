@@ -350,7 +350,10 @@ export interface Price {
   cache_read_per_million: string | null;
   /** Тариф записи в кэш (Anthropic-style); null — не применяется. */
   cache_write_per_million: string | null;
+  /** Откуда цена: manual | api | url. */
   source: string;
+  /** Страница-источник, если цена взята с сайта провайдера. */
+  source_url: string | null;
   effective_at: string;
 }
 
@@ -375,6 +378,10 @@ export interface PriceImportResult {
   source_url: string;
   candidates: PriceImportCandidate[];
   note: string;
+  /** Способ получения значений: static | rendered | llm. */
+  method: "static" | "rendered" | "llm";
+  /** Модель, которой выполнялся LLM-разбор (только для method="llm"). */
+  llm_model: string | null;
 }
 
 export interface FxRate {
@@ -572,12 +579,23 @@ export const api = {
    * вручную, потому что разбор страницы эвристический.
    *
    * @param url Публичный адрес страницы тарифов.
+   * @param options Режим разбора и модель для LLM-режима.
    * @returns Кандидаты с фрагментами текста и напоминанием о проверке.
    */
-  extractPrices: (url: string) =>
+  extractPrices: (
+    url: string,
+    options: {
+      method?: "static" | "llm" | "rendered";
+      modelProfileId?: string;
+    } = {},
+  ) =>
     request<PriceImportResult>("/api/v1/prices/extract", {
       method: "POST",
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({
+        url,
+        method: options.method ?? "static",
+        model_profile_id: options.modelProfileId ?? null,
+      }),
     }),
   createPrice: (input: {
     model_profile_id: string;
@@ -588,6 +606,10 @@ export const api = {
     cache_read_per_million?: string | null;
     /** Тариф записи в кэш (Anthropic-style). */
     cache_write_per_million?: string | null;
+    /** Происхождение цены: manual (по умолчанию) | api | url. */
+    source?: string;
+    /** Страница-источник, если цена взята с сайта провайдера. */
+    source_url?: string | null;
   }) =>
     request<Price>("/api/v1/prices", {
       method: "POST",

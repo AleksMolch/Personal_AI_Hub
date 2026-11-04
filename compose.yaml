@@ -78,6 +78,10 @@ services:
       WEB_SEARCH_MAX_RESULTS: ${WEB_SEARCH_MAX_RESULTS:-5}
       WEB_SEARCH_MAX_CONTEXT_CHARS: ${WEB_SEARCH_MAX_CONTEXT_CHARS:-2000}
       WEB_SEARCH_ENGINES: ${WEB_SEARCH_ENGINES:-}
+      # Headless-рендер страниц для импорта цен (ADR-0006).
+      PRICEBOT_ENABLED: ${PRICEBOT_ENABLED:-0}
+      PRICEBOT_URL: ${PRICEBOT_URL:-http://pricebot:8100}
+      PRICEBOT_TIMEOUT_SECONDS: ${PRICEBOT_TIMEOUT_SECONDS:-30.0}
       # Опциональное автосоздание администратора при пустой БД.
       ADMIN_USERNAME: ${ADMIN_USERNAME:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
@@ -231,6 +235,35 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+
+# Опциональный сервис headless-рендера страниц (ADR-0006). По умолчанию НЕ
+  # запускается: включается профилем `docker compose --profile pricebot up -d
+  # pricebot`. Нужен для импорта тарифов со страниц, где цены дорисовывает
+  # JavaScript. Chromium намеренно вынесен из образа API: он тяжёлый и исполняет
+  # чужой код, которому не место рядом с ключами и базой.
+  pricebot:
+    build:
+      context: .
+      dockerfile: infra/pricebot/Dockerfile
+    profiles: ["pricebot"]
+    restart: unless-stopped
+    environment:
+      # Таймаут загрузки страницы; защита от «вечно висящих» сайтов.
+      PRICEBOT_TIMEOUT_MS: ${PRICEBOT_TIMEOUT_MS:-25000}
+    ports:
+      # Порт публикуется только на localhost и нужен лишь для отладки:
+      # API обращается к сервису по внутренней сети.
+      - "127.0.0.1:${PRICEBOT_PORT:-8100}:8100"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=3).status==200 else 1)\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
 volumes:
   pgdata:

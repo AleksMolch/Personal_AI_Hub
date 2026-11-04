@@ -21,6 +21,7 @@ import { TriangleAlert } from "lucide-react";
 
 import { AppShell } from "@/components/app-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -82,6 +83,22 @@ function formatPrice(value: string): string {
   return trimmed === "" ? "0" : trimmed;
 }
 
+/**
+ * Человекочитаемое происхождение цены.
+ *
+ * Происхождение важно для доверия к расчётам: цена, взятая со страницы
+ * провайдера, отличается от введённой вручную, и при сверке со счётом нужно
+ * знать, откуда цифры.
+ *
+ * @param price Снимок цены.
+ * @returns Строка описания источника.
+ */
+function priceSourceLabel(price: Price): string {
+  if (price.source === "api") return "импортировано из API провайдера";
+  if (price.source === "url") return "взято со страницы провайдера";
+  return "задано вручную";
+}
+
 /** Ключи для трёх карточек-заглушек (фиксированные, без индексов массива). */
 const SKELETON_KEYS = ["first", "second", "third"] as const;
 
@@ -92,6 +109,32 @@ const IMPORT_FIELD_LABELS: Record<string, string> = {
   cache_read_per_million: "Cache hit",
   cache_write_per_million: "Cache write",
 };
+
+/** Режимы разбора страницы тарифов. */
+type ImportMethod = "static" | "rendered" | "llm";
+
+/** Описание режимов и подписи кнопок. */
+const IMPORT_METHODS: {
+  value: ImportMethod;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    value: "static",
+    label: "Обычный разбор",
+    hint: "Читает HTML и ищет цены в тексте. Бесплатно и предсказуемо.",
+  },
+  {
+    value: "rendered",
+    label: "Рендер страницы",
+    hint: "Открывает страницу в браузере — для тарифов, которые рисует JavaScript.",
+  },
+  {
+    value: "llm",
+    label: "Через LLM",
+    hint: "Модель читает текст страницы. Платно: вызов списывается из бюджета.",
+  },
+];
 
 interface ModelPriceCardProps {
   /** Модель из каталога backend. */
@@ -176,6 +219,24 @@ function ModelPriceCard({
               ? `Текущая цена: $${formatPrice(price.input_per_million)} / $${formatPrice(price.output_per_million)} за 1M токенов (вход/выход)`
               : MISSING_PRICE_TEXT}
           </p>
+          {price && (
+            <p className="text-pah-xs text-muted-foreground">
+              Источник: {priceSourceLabel(price)}
+              {price.source === "url" && price.source_url && (
+                <>
+                  {" — "}
+                  <a
+                    href={price.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline underline-offset-2"
+                  >
+                    {price.source_url}
+                  </a>
+                </>
+              )}
+            </p>
+          )}
           {price?.cache_read_per_million && (
             <p className="text-pah-sm text-muted-foreground">
               Кэш (попадание): ${formatPrice(price.cache_read_per_million)} за
@@ -352,8 +413,15 @@ export default function ModelsPage() {
   const [importBusy, setImportBusy] = useState(false);
   /** Модель, к которой применяются найденные значения. */
   const [importModelId, setImportModelId] = useState("");
+  /** Адрес страницы, с которой подставлены значения, в разрезе моделей. */
+  const [importedFrom, setImportedFrom] = useState<Record<string, string>>({});
+  /** Выбранный режим разбора страницы. */
+  const [importMethod, setImportMethod] = useState<ImportMethod>("static");
+  /** Модель для LLM-разбора (только модели с заданной ценой). */
+  const [llmModelId, setLlmModelId] = useState("");
   const importUrlId = useId();
   const importModelSelectId = useId();
+  const llmModelSelectId = useId();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   // Флаг взводится только на первую загрузку и больше не сбрасывается: при
@@ -472,6 +540,7 @@ export default function ModelsPage() {
       return;
     }
     try {
+      const sourceUrl = importedFrom[model.id] ?? null;
       await api.createPrice({
         model_profile_id: model.id,
         input_per_million: input,
@@ -481,6 +550,15 @@ export default function ModelsPage() {
         cache_read_per_million: cacheRead || null,
         cache_write_per_million: cacheWrite || null,
         currency: "USD",
+        // Происхождение цены: если значения подставлены с сайта провайдера,
+        // фиксируем источник; ручной ввод остаётся source="manual".
+        source: sourceUrl ? "url" : "manual",
+        source_url: sourceUrl,
+      });
+      setImportedFrom((s) => {
+        const next = { ...s };
+        delete next[model.id];
+        return next;
       });
       setSaved(model.id);
       await load();
@@ -496,6 +574,9 @@ export default function ModelsPage() {
     return prices[modelId] ?? null;
   }
 
+  /** Модели с ценой: только они годятся для платного LLM-разбора. */
+  const pricedModels = models.filter((m) => m.has_price);
+
   /**
    * Загружает страницу тарифов провайдера и показывает найденные значения.
    *
@@ -503,18 +584,34 @@ export default function ModelsPage() {
    * страницу тарифов, поэтому найденное — подсказка, которую обязан проверить
    * пользователь.
    *
+   * @param method Режим разбора; по умолчанию выбранный в интерфейсе.
    * @returns Промис без значения. Побочные эффекты: POST /prices/extract.
    */
-  async function onExtract() {
+  async function onExtract(method: ImportMethod = importMethod) {
     setError(null);
     setImportResult(null);
+    setImportMethod(method);
     if (!importUrl.trim()) {
       setError("Укажите адрес страницы с тарифами провайдера.");
       return;
     }
+    if (method === "llm" && !llmModelId && pricedModels.length === 0) {
+      // Платный вызов без цены невозможен по правилам биллинга: сообщаем
+      // заранее, а не после отказа сервера.
+      setError(
+        "Для разбора через LLM нужна хотя бы одна модель с заданной ценой.",
+      );
+      return;
+    }
     setImportBusy(true);
     try {
-      setImportResult(await api.extractPrices(importUrl.trim()));
+      setImportResult(
+        await api.extractPrices(importUrl.trim(), {
+          method,
+          modelProfileId:
+            method === "llm" ? llmModelId || pricedModels[0]?.id : undefined,
+        }),
+      );
     } catch (err) {
       setError(
         err instanceof Error
@@ -542,6 +639,12 @@ export default function ModelsPage() {
   function applyCandidate(field: string, value: string) {
     if (!importModelId) return;
     const id = importModelId;
+    // Запоминаем источник: при сохранении цена получит source="url" и ссылку,
+    // чтобы в истории было видно, откуда взяты цифры.
+    setImportedFrom((s) => ({
+      ...s,
+      [id]: importResult?.source_url ?? "",
+    }));
     if (field === "input_per_million") {
       setInputs((s) => ({ ...s, [id]: value }));
     } else if (field === "output_per_million") {
@@ -614,17 +717,120 @@ export default function ModelsPage() {
               </Button>
             </div>
 
+            {/* Режим разбора: обычный HTML, рендер в браузере или модель.
+                Три разных пути с разной ценой и точностью — пользователь
+                должен понимать, что именно запускает. */}
+            <div
+              role="radiogroup"
+              aria-label="Способ разбора страницы"
+              className="flex flex-col gap-1"
+            >
+              {IMPORT_METHODS.map((method) => (
+                <button
+                  key={method.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={importMethod === method.value}
+                  onClick={() => setImportMethod(method.value)}
+                  className={`rounded-md border p-2 text-left transition-colors ${
+                    importMethod === method.value
+                      ? "border-primary bg-primary/5"
+                      : "hover:bg-accent border-transparent"
+                  }`}
+                >
+                  <span className="text-pah-sm font-medium">
+                    {method.label}
+                  </span>
+                  <span className="text-muted-foreground block text-pah-xs">
+                    {method.hint}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {importMethod === "llm" && (
+              <div className="flex flex-col gap-2">
+                {pricedModels.length === 0 ? (
+                  <Alert variant="warning">
+                    <AlertDescription>
+                      Ни у одной модели нет цены, поэтому платный разбор
+                      недоступен: сначала задайте цену хотя бы одной модели.
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <>
+                    <Label htmlFor={llmModelSelectId}>
+                      Модель для разбора (платно, из бюджета)
+                    </Label>
+                    <Select
+                      value={llmModelId || pricedModels[0].id}
+                      onValueChange={setLlmModelId}
+                    >
+                      <SelectTrigger id={llmModelSelectId}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {pricedModels.map((m) => (
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.display_name || m.external_model_id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </>
+                )}
+              </div>
+            )}
+
             {importResult && (
               <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary">
+                    {importResult.method === "llm"
+                      ? "Разбор моделью"
+                      : importResult.method === "rendered"
+                        ? "Разбор после рендера"
+                        : "Обычный разбор"}
+                  </Badge>
+                  {importResult.llm_model && (
+                    <span className="text-muted-foreground text-pah-xs">
+                      модель: {importResult.llm_model}
+                    </span>
+                  )}
+                </div>
+
                 <Alert>
                   <AlertDescription>{importResult.note}</AlertDescription>
                 </Alert>
 
                 {importResult.candidates.length === 0 ? (
-                  <p className="text-muted-foreground text-pah-sm">
-                    На странице не нашлось однозначных цен за 1M токенов.
-                    Укажите их вручную в карточке модели.
-                  </p>
+                  <div className="flex flex-col gap-2">
+                    <p className="text-muted-foreground text-pah-sm">
+                      На странице не нашлось однозначных цен за 1M токенов.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {importResult.method !== "rendered" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void onExtract("rendered")}
+                          disabled={importBusy}
+                        >
+                          Повторить с рендером страницы
+                        </Button>
+                      )}
+                      {pricedModels.length > 0 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void onExtract("llm")}
+                          disabled={importBusy}
+                        >
+                          Попробовать через LLM
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                 ) : (
                   <ul className="flex flex-col gap-2">
                     {importResult.candidates.map((candidate, index) => (

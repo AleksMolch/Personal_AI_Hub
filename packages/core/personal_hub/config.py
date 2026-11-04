@@ -73,6 +73,14 @@ class Settings(BaseSettings):
     # Список движков SearXNG через запятую; пусто — выбор самого SearXNG.
     web_search_engines: str = ""
 
+    # Headless-рендер страниц для импорта цен (ADR-0006).
+    # Нужен там, где таблица тарифов дорисовывается JavaScript: обычный
+    # HTTP-запрос видит только пустую оболочку. По умолчанию выключен, потому
+    # что требует отдельного контейнера с Chromium (профиль `pricebot`).
+    pricebot_enabled: bool = False
+    pricebot_url: str = "http://pricebot:8100"
+    pricebot_timeout_seconds: float = Field(default=30.0, gt=0)
+
     # Логирование и тесты.
     log_level: str = "INFO"
     run_live_tests: bool = False

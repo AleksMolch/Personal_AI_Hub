@@ -134,6 +134,21 @@ def _assert_public_url(url: str) -> None:
             )
 
 
+def assert_public_url(url: str) -> None:
+    """Публичная проверка адреса: загрузка не должна стать SSRF.
+
+    Обёртка над внутренней проверкой, чтобы сервис рендера (`pricebot`) мог
+    пользоваться тем же правилом, не обращаясь к приватному имени.
+
+    Args:
+        url: Проверяемый адрес.
+
+    Raises:
+        PriceImportError: Если адрес недопустим.
+    """
+    _assert_public_url(url)
+
+
 async def fetch_pricing_page(url: str) -> str:
     """Загружает страницу тарифов и возвращает её текст.
 
@@ -255,12 +270,59 @@ def _detect_field(line: str) -> str | None:
     return None
 
 
+def _has_unit(line: str) -> bool:
+    """Есть ли в строке указание «за 1M токенов»."""
+    lowered = line.lower()
+    return "1m" in lowered or "1 m" in lowered or "million" in lowered
+
+
+def _collect_block(
+    lines: list[str], start: int
+) -> tuple[str | None, str, int]:
+    """Собирает блок «подпись + значения» из соседних строк.
+
+    После рендера в браузере ячейки таблицы часто идут отдельными строками:
+    сверху «1M INPUT TOKENS», ниже «(CACHE HIT)», ниже «$0.003». Поэтому цена и
+    её подпись оказываются в разных строках, и построчный разбор их не связывает.
+    Блок собирается до следующей строки с единицей измерения («1M OUTPUT ...») —
+    это граница следующего тарифа.
+
+    Args:
+        lines: Все строки текста.
+        start: Индекс строки-заголовка с единицей измерения.
+
+    Returns:
+        Кортеж (поле, склеенный текст блока, индекс следующей строки после блока).
+        Поле может уточниться по строке вида «(CACHE HIT)».
+    """
+    field = _detect_field(lines[start])
+    block = [lines[start]]
+    index = start + 1
+    while index < len(lines) and len(block) < 8:
+        candidate = lines[index]
+        # Новая единица измерения — начало следующего тарифа.
+        if _has_unit(candidate):
+            break
+        block.append(candidate)
+        refined = _detect_field(candidate)
+        # Уточнение вида «(CACHE HIT)» важнее общего «input» из заголовка.
+        if refined in (FIELD_CACHE_READ, FIELD_CACHE_WRITE):
+            field = refined
+        # Хватает значений на весь тариф (офпик/пик) — дальше идёт «PEAK».
+        if len(_MONEY_RE.findall(" ".join(block))) >= 4:
+            break
+        index += 1
+    return field, " ".join(block), index
+
+
 def extract_price_candidates(text: str, *, max_candidates: int = 12) -> list[PriceCandidate]:
     """Ищет в тексте страницы кандидатов на цены модели.
 
     Значения трактуются как цена за 1M токенов — именно так публикуют тарифы
-    проверенные провайдеры. Если строка содержит несколько сумм, возвращаются
-    все: выбрать правильную должен пользователь.
+    проверенные провайдеры. Подпись и суммы могут находиться в одной строке
+    (HTML-таблица после очистки) или в соседних (текст после рендера в браузере),
+    поэтому используется оконный разбор: заголовок с «1M» собирает значения из
+    следующих строк до начала следующего тарифа.
 
     Args:
         text: Текст страницы (обычно результат `html_to_lines`, склеенный).
@@ -271,16 +333,21 @@ def extract_price_candidates(text: str, *, max_candidates: int = 12) -> list[Pri
     """
     candidates: list[PriceCandidate] = []
     seen: set[tuple[str, Decimal]] = set()
+    lines = [line for line in text.splitlines() if line.strip()]
 
-    for line in text.splitlines():
-        field = _detect_field(line)
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if not _has_unit(line) or _detect_field(line) is None:
+            index += 1
+            continue
+
+        field, block_text, next_index = _collect_block(lines, index)
+        index = max(next_index, index + 1)
         if field is None:
             continue
-        if "1m" not in line.lower() and "1 m" not in line.lower() and "million" not in line.lower():
-            # Цены без указания единицы измерения слишком неоднозначны:
-            # за токен, за 1K или за 1M — разница в тысячу раз.
-            continue
-        for match in _MONEY_RE.finditer(line):
+
+        for match in _MONEY_RE.finditer(block_text):
             raw = match.group("d1") or match.group("d2")
             if not raw:
                 continue
@@ -296,7 +363,7 @@ def extract_price_candidates(text: str, *, max_candidates: int = 12) -> list[Pri
                 PriceCandidate(
                     field=field,
                     value=value,
-                    snippet=line[:240],
+                    snippet=block_text[:240],
                     # Уверенность невысокая по определению: разбор
                     # эвристический и требует сверки пользователем.
                     confidence=0.4,

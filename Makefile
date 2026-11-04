@@ -5,7 +5,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 PYTHON := python3
 
-.PHONY: help bootstrap up down status logs lint typecheck test test-unit test-integration test-live test-e2e smoke backup restore migrate-check migrate health doctor up-litellm down-litellm up-search down-search
+.PHONY: help bootstrap up down status logs lint typecheck test test-unit test-integration test-live test-e2e smoke backup restore migrate-check migrate health doctor up-litellm down-litellm up-search down-search up-pricebot down-pricebot
 
 help: ## Список команд
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -53,6 +53,14 @@ up-search: ## Запуск SearXNG для веб-поиска (ADR-0005)
 
 down-search: ## Остановка SearXNG
 	$(COMPOSE) --profile search down searxng
+
+up-pricebot: ## Запуск сервиса рендера страниц для импорта цен (ADR-0006)
+	@test -f .env || { echo "Сначала выполните: make bootstrap"; exit 1; }
+	$(COMPOSE) --profile pricebot up -d --build pricebot
+	@echo "pricebot: http://127.0.0.1:$${PRICEBOT_PORT:-8100}/healthz (включите PRICEBOT_ENABLED=1 и перезапустите api)"
+
+down-pricebot: ## Остановка сервиса рендера страниц
+	$(COMPOSE) --profile pricebot down pricebot
 
 ## ---- Качество кода ---------------------------------------------------------
 
