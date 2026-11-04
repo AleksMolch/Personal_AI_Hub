@@ -290,9 +290,21 @@
       перезагрузки vault, идемпотентный commit, отказ по digest/revision/сроку,
       изоляция пользователей, снимок защиты сообщения, capabilities) и
       3 unit (digest); всего unit 193, integration 81
-- [ ] Срезы 3–9: prepare/commit API, интеграция chat_worker с sanitized-
-      контекстом, ResponseRestorer в SSE, local_only, UI-переключатель,
-      egress-изоляция, E2E и `docs/security/*`
+- [x] Срез 3 — HTTP-контракт: `POST /api/v1/protection/conversations/{id}/prepare`
+      (приватный и sanitized preview, digest, ревизия, найденные сущности) и
+      `.../commit` (проверка digest/revision, идемпотентность, 409/410 по
+      кодам); `PATCH /conversations/{id}` меняет режим и увеличивает ревизию;
+      при выключенном флаге эндпоинты честно отказывают
+- [x] Тесты среза 3: 8 integration (выключенный флаг, требование гибрида,
+      preview с псевдонимами, commit и повторный commit, подмена digest,
+      устаревший preview после смены режима, чужой диалог, история в preview);
+      всего unit 193, integration 89
+- [x] Живой smoke на локальном стеке: режим переключён, prepare дал
+      `[ORG_1] [EMAIL_1] [PHONE_1]`, commit — `committed`, утечек нет,
+      повторный commit вернул тот же id; после выключения флага — ожидаемый 400
+- [ ] Срезы 4–9: интеграция chat_worker с sanitized-контекстом,
+      ResponseRestorer в SSE, local_only, UI-переключатель, egress-изоляция,
+      E2E и `docs/security/*`
 
 ## Определение готовности Этапа 1
 Чистая установка по README, health, миграции, провайдеры, streaming chat,

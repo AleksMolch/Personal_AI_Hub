@@ -176,7 +176,13 @@ async def update_conversation(
     session: AsyncSession = Depends(get_session),
 ) -> ConversationOut:
     conversation = await _get_owned_conversation(conversation_id, user, session)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    # ADR-0007: смена режима — это смена политики обработки, поэтому ревизия
+    # растёт. Подготовка, сделанная до переключения, не должна уйти наружу.
+    new_mode = data.get("protection_mode")
+    if new_mode is not None and new_mode != conversation.protection_mode:
+        conversation.protection_revision += 1
+    for field, value in data.items():
         setattr(conversation, field, value)
     await session.commit()
     await session.refresh(conversation)

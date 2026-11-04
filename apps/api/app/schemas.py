@@ -208,6 +208,9 @@ class ConversationUpdate(BaseModel):
     archived: bool | None = None
     model_profile_id: uuid.UUID | None = None
     system_instruction: str | None = None
+    # ADR-0007: режим выбирает пользователь. Смена режима увеличивает ревизию,
+    # поэтому подготовка, сделанная до переключения, не может быть отправлена.
+    protection_mode: Literal["cloud_controlled", "protected_hybrid", "local_only"] | None = None
 
 
 class MessageOut(BaseModel):
@@ -232,6 +235,9 @@ class ConversationOut(BaseModel):
     model_profile_id: uuid.UUID | None
     system_instruction: str | None
     archived: bool
+    # Режим защиты и ревизия контекста (ADR-0007).
+    protection_mode: str
+    protection_revision: int
     created_at: datetime
     updated_at: datetime
 
@@ -570,3 +576,59 @@ class FxRateOut(BaseModel):
     rate: Decimal
     source: str
     fetched_at: datetime
+
+
+# ---- Защищённые режимы (ADR-0007) -------------------------------------------
+
+
+class ProtectionPrepareRequest(BaseModel):
+    """Запрос на подготовку защищённого контекста."""
+
+    # Новое сообщение пользователя, которое нужно очистить вместе с историей.
+    text: str = Field(min_length=1, max_length=100_000)
+    # Словарь организаций/объектов: детектор сам их не знает, пока пользователь
+    # не перечислит названия.
+    dictionary: dict[str, list[str]] | None = None
+
+
+class ProtectionEntityOut(BaseModel):
+    """Найденная сущность в preview (без исходного значения)."""
+
+    placeholder: str
+    category: str
+    occurrences: int
+
+
+class ProtectionPreviewOut(BaseModel):
+    """Результат подготовки: приватный и sanitized payload на сверку."""
+
+    preparation_id: uuid.UUID
+    mode: str
+    revision: int
+    # Digest приватного payload: commit примет только его.
+    digest: str
+    private_messages: list[str]
+    sanitized_messages: list[str]
+    sanitized_text: str
+    entities: list[ProtectionEntityOut]
+    expires_at: datetime | None
+    note: str
+
+
+class ProtectionCommitRequest(BaseModel):
+    """Подтверждение конкретного preview."""
+
+    preparation_id: uuid.UUID
+    digest: str = Field(min_length=64, max_length=64)
+    revision: int = Field(ge=0)
+
+
+class ProtectionCommitOut(BaseModel):
+    """Результат подтверждения: что именно уйдёт внешней модели."""
+
+    preparation_id: uuid.UUID
+    status: str
+    revision: int
+    sanitized_text: str
+    entities_count: int
+    note: str
