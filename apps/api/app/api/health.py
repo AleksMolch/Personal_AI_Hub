@@ -10,6 +10,7 @@ import redis.asyncio as redis
 from fastapi import APIRouter, Response, status
 from personal_hub.config import get_settings
 from personal_hub.db.engine import ping_database
+from personal_hub.protection.modes import ProtectionMode
 from personal_hub.version import APP_VERSION
 
 router = APIRouter(prefix="/api/v1", tags=["system"])
@@ -46,14 +47,25 @@ async def version() -> dict[str, str]:
 
 
 @router.get("/capabilities", summary="Возможности сервера для UI")
-async def capabilities() -> dict[str, bool]:
+async def capabilities() -> dict[str, object]:
     """Сообщает, какие опциональные возможности включены на сервере.
 
     Нужен интерфейсу, чтобы не показывать неработающие элементы: например,
-    переключатель веб-доступа рендерится только при `web_search=true`.
+    переключатель веб-доступа рендерится только при `web_search=true`, а
+    переключатель режима защиты — только когда защита включена флагом
+    `PROTECTION_MODES_ENABLED` (ADR-0007).
     """
     settings = get_settings()
-    return {"web_search": settings.web_search_enabled}
+    return {
+        "web_search": settings.web_search_enabled,
+        "protection": {
+            "enabled": settings.protection_modes_enabled,
+            # Список режимов отдаём и при выключенном флаге: он статичен и
+            # нужен тестам/клиентам, но UI показывает переключатель только при
+            # enabled=true.
+            "modes": [mode.value for mode in ProtectionMode],
+        },
+    }
 
 
 async def _ping_valkey(url: str) -> str:

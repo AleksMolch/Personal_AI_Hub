@@ -35,7 +35,8 @@ async def clean_db() -> None:
                 "TRUNCATE users, provider_credentials, model_profiles, "
                 "conversations, messages, price_snapshots, fx_rates, budgets, "
                 "usage_records, cost_reservations, assets, jobs, "
-                "knowledge_bases, documents, chunks "
+                "knowledge_bases, documents, chunks, "
+                "protection_preparations, protection_entities "
                 "RESTART IDENTITY CASCADE"
             )
         )

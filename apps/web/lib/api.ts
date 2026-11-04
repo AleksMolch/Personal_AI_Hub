@@ -402,7 +402,12 @@ export const api = {
    *
    * @returns Флаги включённых на сервере возможностей.
    */
-  capabilities: () => request<{ web_search: boolean }>("/api/v1/capabilities"),
+  capabilities: () =>
+    request<{
+      web_search: boolean;
+      /** Защищённые режимы (ADR-0007): показывать переключатель только при enabled. */
+      protection?: { enabled: boolean; modes: string[] };
+    }>("/api/v1/capabilities"),
   login: (username: string, password: string) =>
     request<TokenResponse>("/api/v1/auth/login", {
       method: "POST",

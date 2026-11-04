@@ -82,6 +82,8 @@ services:
       PRICEBOT_ENABLED: ${PRICEBOT_ENABLED:-0}
       PRICEBOT_URL: ${PRICEBOT_URL:-http://pricebot:8100}
       PRICEBOT_TIMEOUT_SECONDS: ${PRICEBOT_TIMEOUT_SECONDS:-30.0}
+      # Защищённые режимы (ADR-0007). Выключены, пока не готовы все инварианты.
+      PROTECTION_MODES_ENABLED: ${PROTECTION_MODES_ENABLED:-0}
       # Опциональное автосоздание администратора при пустой БД.
       ADMIN_USERNAME: ${ADMIN_USERNAME:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}

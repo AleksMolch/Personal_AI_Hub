@@ -12,7 +12,17 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -138,6 +148,16 @@ class Conversation(Base, TimestampMixin):
     )
     system_instruction: Mapped[str | None] = mapped_column(Text, nullable=True)
     archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # ADR-0007: режим защиты выбирает пользователь. Дефолт повторяет текущее
+    # поведение, поэтому обновление не меняет смысл существующих диалогов.
+    protection_mode: Mapped[str] = mapped_column(
+        String(32), default="cloud_controlled", server_default="cloud_controlled", nullable=False
+    )
+    # Растёт при смене режима и правке контекста: подготовка с другой ревизией
+    # отклоняется ДО отправки, чтобы наружу не ушёл устаревший payload.
+    protection_revision: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
 
 
 class Message(Base, TimestampMixin):
@@ -173,6 +193,10 @@ class Message(Base, TimestampMixin):
     )
     # Снапшот модели/провайдера на момент генерации (для прозрачности истории).
     model_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    # ADR-0007: снимок защиты сообщения. Здесь же лежит sanitized-текст, который
+    # уходит провайдеру и используется как контекст следующего turn: приватный
+    # `content` никогда не отправляется в гибриде повторно.
+    protection: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
@@ -443,3 +467,82 @@ class Chunk(Base, TimestampMixin):
     page: Mapped[int | None] = mapped_column(Integer, nullable=True)
     checksum: Mapped[str] = mapped_column(String(64), nullable=False)
     vector_id: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
+class PreparationStatus(StrEnum):
+    """Жизненный цикл подготовки защищённого запроса (ADR-0007)."""
+
+    PENDING = "pending"
+    COMMITTED = "committed"
+    EXPIRED = "expired"
+
+
+class ProtectionPreparation(Base, TimestampMixin):
+    """Подготовка защищённого запроса: приватный и sanitized payload.
+
+    Создаётся на шаге preview, используется на шаге commit. Наружу уходит только
+    `sanitized_text`; приватный текст хранится в `Message.content` и здесь не
+    дублируется — хранится лишь его digest для проверки, что подготовлен именно
+    тот контекст, который пользователь видел.
+
+    `revision` — ревизия диалога на момент подготовки. Если пользователь изменил
+    контекст или режим, commit отклоняется до сетевого вызова.
+    """
+
+    __tablename__ = "protection_preparations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), default=PreparationStatus.PENDING.value, nullable=False
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Digest приватного и sanitized payload: commit принимает только совпадение.
+    private_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    sanitized_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    sanitized_text: Mapped[str] = mapped_column(Text, nullable=False)
+    committed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class ProtectionEntity(Base, TimestampMixin):
+    """Запись vault: псевдоним и зашифрованное значение (ADR-0007).
+
+    Значение шифруется мастер-ключом приложения, поэтому база не содержит
+    открытых ПДн, а API не имеет эндпоинта, возвращающего расшифровку.
+    """
+
+    __tablename__ = "protection_entities"
+    __table_args__ = (
+        UniqueConstraint(
+            "preparation_id", "placeholder", name="uq_protection_entity_placeholder"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    preparation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("protection_preparations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    placeholder: Mapped[str] = mapped_column(String(64), nullable=False)
+    category: Mapped[str] = mapped_column(String(32), nullable=False)
+    ciphertext: Mapped[str] = mapped_column(Text, nullable=False)

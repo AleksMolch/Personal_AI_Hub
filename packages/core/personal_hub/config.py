@@ -81,6 +81,11 @@ class Settings(BaseSettings):
     pricebot_url: str = "http://pricebot:8100"
     pricebot_timeout_seconds: float = Field(default=30.0, gt=0)
 
+    # Защищённые режимы (ADR-0007). По умолчанию выключены: пока не готовы все
+    # инварианты (подготовка, восстановление, local_only), показывать рабочий
+    # индикатор защиты нельзя. Флаг убирается после приёмки среза 9.
+    protection_modes_enabled: bool = False
+
     # Логирование и тесты.
     log_level: str = "INFO"
     run_live_tests: bool = False
