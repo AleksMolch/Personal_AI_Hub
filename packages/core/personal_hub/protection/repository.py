@@ -1,4 +1,4 @@
-﻿"""Репозиторий защищённых подготовок и vault в PostgreSQL (ADR-0007).
+"""Репозиторий защищённых подготовок и vault в PostgreSQL (ADR-0007).
 
 Назначение: сохранять prepared-запросы и карту псевдонимов, проверять
 целостность перед отправкой (digest + revision), обеспечивать идемпотентность
@@ -75,6 +75,7 @@ async def create_preparation(
     revision: int,
     private_digest: str,
     sanitized_text: str,
+    sanitized_messages: list[str],
     vault: EntityVault,
     ttl: timedelta = DEFAULT_TTL,
 ) -> ProtectionPreparation:
@@ -87,7 +88,9 @@ async def create_preparation(
         mode: Режим защиты на момент подготовки.
         revision: Ревизия диалога на момент подготовки.
         private_digest: Digest приватного payload (что видел пользователь).
-        sanitized_text: Текст, который уйдёт провайдеру.
+        sanitized_text: Текст, который уйдёт провайдеру (склеенный для показа).
+        sanitized_messages: Построчные sanitized-версии сообщений: именно они
+            уходят провайдеру и не пересчитываются при отправке.
         vault: Vault с псевдонимами и шифротекстом.
         ttl: Срок жизни подготовки.
 
@@ -114,6 +117,7 @@ async def create_preparation(
         private_digest=private_digest,
         sanitized_digest=payload_digest({"text": sanitized_text}),
         sanitized_text=sanitized_text,
+        sanitized_messages=sanitized_messages,
         expires_at=now + ttl,
     )
     session.add(preparation)

@@ -512,6 +512,12 @@ class ProtectionPreparation(Base, TimestampMixin):
     private_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     sanitized_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     sanitized_text: Mapped[str] = mapped_column(Text, nullable=False)
+    # Построчные sanitized-версии сообщений: именно они уходят провайдеру.
+    # Храним их, чтобы отправлялось ровно то, что пользователь подтвердил, без
+    # повторной санитизации (она могла бы дать другой результат).
+    sanitized_messages: Mapped[list] = mapped_column(
+        JSONB, default=list, nullable=False
+    )
     committed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

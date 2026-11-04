@@ -223,6 +223,8 @@ class MessageOut(BaseModel):
     parent_id: uuid.UUID | None
     status: str
     model_snapshot: dict
+    # Снимок защиты (ADR-0007): режим, preparation_id, sanitized-текст.
+    protection: dict = Field(default_factory=dict)
     error_code: str | None
     created_at: datetime
 
@@ -249,6 +251,9 @@ class ConversationDetail(ConversationOut):
 class MessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=200_000)
     model_profile_id: uuid.UUID | None = None
+    # ADR-0007: в режиме protected_hybrid сообщение можно отправить только с
+    # подтверждённой подготовкой. Без неё провайдеру ушёл бы приватный текст.
+    preparation_id: uuid.UUID | None = None
     # Глубина рассуждений. Допустимые значения — нормализованный минимум,
     # переносимый между OpenAI-совместимыми провайдерами (openai_compatible →
     # reasoning_effort, openrouter → reasoning.effort). Значение принимается

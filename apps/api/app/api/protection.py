@@ -23,7 +23,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from personal_hub.config import get_settings
 from personal_hub.db.engine import get_session
-from personal_hub.models import Conversation, Message, ProtectionEntity, User
+from personal_hub.models import Conversation, Message, MessageStatus, ProtectionEntity, User
 from personal_hub.protection.detector import detect
 from personal_hub.protection.errors import ProtectionError
 from personal_hub.protection.modes import ProtectionMode
@@ -48,10 +48,6 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/api/v1/protection", tags=["protection"])
-
-# Сколько последних сообщений попадает в контекст. Ограничение защищает от
-# неограниченного роста стоимости и от случайной отправки всей истории.
-_HISTORY_LIMIT = 20
 
 _PREPARE_NOTE = (
     "Ничего не отправлено. Проверьте, что в sanitized-версии нет лишнего, и "
@@ -91,14 +87,22 @@ async def _owned_conversation(
 async def _history(
     session: AsyncSession, conversation_id: uuid.UUID
 ) -> list[Message]:
-    """Возвращает последние сообщения диалога в хронологическом порядке."""
+    """Возвращает историю в том же виде, в каком её увидит провайдер.
+
+    Фильтры и порядок совпадают с отправкой сообщения: только завершённые
+    сообщения user/assistant. Иначе digest подготовки не совпал бы с payload,
+    который реально уходит модели.
+    """
     result = await session.execute(
         select(Message)
-        .where(Message.conversation_id == conversation_id)
-        .order_by(Message.created_at.desc())
-        .limit(_HISTORY_LIMIT)
+        .where(
+            Message.conversation_id == conversation_id,
+            Message.role.in_(["user", "assistant"]),
+            Message.status == MessageStatus.COMPLETED.value,
+        )
+        .order_by(Message.created_at, Message.id)
     )
-    return list(reversed(result.scalars().all()))
+    return list(result.scalars().all())
 
 
 @router.post(
@@ -170,6 +174,7 @@ async def prepare_protection(
             revision=conversation.protection_revision,
             private_digest=digest,
             sanitized_text=sanitized_text,
+            sanitized_messages=sanitized_messages,
             vault=vault,
         )
     except ProtectionError as exc:

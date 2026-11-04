@@ -79,6 +79,7 @@ async def test_preparation_persists_ciphertext_and_restores(client: AsyncClient)
             revision=0,
             private_digest=digest,
             sanitized_text=sanitized,
+            sanitized_messages=[sanitized],
             vault=vault,
         )
         rows = (
@@ -116,6 +117,7 @@ async def test_commit_is_idempotent(client: AsyncClient) -> None:
             revision=0,
             private_digest=digest,
             sanitized_text=sanitized,
+            sanitized_messages=[sanitized],
             vault=vault,
         )
     async with factory() as session:
@@ -156,6 +158,7 @@ async def test_commit_rejects_wrong_digest(client: AsyncClient) -> None:
             revision=0,
             private_digest=digest,
             sanitized_text=sanitized,
+            sanitized_messages=[sanitized],
             vault=vault,
         )
     async with factory() as session:
@@ -187,6 +190,7 @@ async def test_commit_rejects_stale_revision(client: AsyncClient) -> None:
             revision=0,
             private_digest=digest,
             sanitized_text=sanitized,
+            sanitized_messages=[sanitized],
             vault=vault,
         )
     async with factory() as session:
@@ -218,6 +222,7 @@ async def test_expired_preparation_is_rejected(client: AsyncClient) -> None:
             revision=0,
             private_digest=digest,
             sanitized_text=sanitized,
+            sanitized_messages=[sanitized],
             vault=vault,
             ttl=timedelta(seconds=-1),
         )
@@ -250,6 +255,7 @@ async def test_foreign_user_cannot_read_preparation(client: AsyncClient) -> None
             revision=0,
             private_digest=digest,
             sanitized_text=sanitized,
+            sanitized_messages=[sanitized],
             vault=vault,
         )
         # Второй пользователь создаётся напрямую: bootstrap допускает только

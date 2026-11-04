@@ -22,6 +22,9 @@ from personal_hub.models import (
     ProviderCredential,
     User,
 )
+from personal_hub.protection.errors import ProtectionError
+from personal_hub.protection.modes import ProtectionMode
+from personal_hub.protection.repository import get_preparation, payload_digest
 from personal_hub.providers.base import (
     Capability,
     ChatMessage,
@@ -245,10 +248,89 @@ async def create_message(
         )
         .order_by(Message.created_at, Message.id)
     )
-    chat_messages = [
-        ChatMessage(role=m.role, content=m.content) for m in history_result.scalars().all()
-    ]
-    chat_messages.append(ChatMessage(role="user", content=payload.content))
+    history_messages = list(history_result.scalars().all())
+
+    # ADR-0007: режим обработки диалога. В гибриде наружу уходит только
+    # подтверждённый sanitized-контекст; в локальном режиме внешние вызовы
+    # запрещены, пока локальный runtime не реализован (срез 6).
+    mode = ProtectionMode(conversation.protection_mode)
+    if mode == ProtectionMode.LOCAL_ONLY:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Режим «Только локально» ещё не поддерживается: внешние вызовы "
+            "запрещены. Переключите режим диалога.",
+        )
+
+    preparation = None
+    if mode == ProtectionMode.PROTECTED_HYBRID:
+        if payload.preparation_id is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Для отправки в режиме «Защищённый гибрид» нужна подтверждённая "
+                "подготовка: покажите preview и подтвердите его. (PROTECTION_PREPARATION_REQUIRED)",
+            )
+        try:
+            preparation = await get_preparation(
+                session, user_id=user.id, preparation_id=payload.preparation_id
+            )
+        except ProtectionError as exc:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, f"{exc.message} ({exc.code})"
+            ) from exc
+        if preparation.conversation_id != conversation.id:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Подготовка относится к другому диалогу.",
+            )
+        if preparation.status != "committed":
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Подготовка не подтверждена. Покажите preview и подтвердите его. "
+                "(PROTECTION_NOT_COMMITTED)",
+            )
+        if preparation.revision != conversation.protection_revision:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Контекст диалога изменился после подготовки. Покажите preview "
+                "заново. (PROTECTION_PREVIEW_STALE)",
+            )
+        # Сверяем, что отправляемое сообщение — именно то, что пользователь
+        # видел в preview: иначе commit подтверждал бы другой текст.
+        private_messages = [
+            {"role": message.role, "content": message.content}
+            for message in history_messages
+        ]
+        private_messages.append({"role": "user", "content": payload.content})
+        if payload_digest({"messages": private_messages}) != preparation.private_digest:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Содержимое сообщения изменилось после подготовки. Покажите "
+                "preview заново. (PROTECTION_DIGEST_MISMATCH)",
+            )
+
+    # Собираем контекст: в гибриде — подтверждённые sanitized-версии, иначе
+    # исходные тексты. Для истории приоритет у собственного снимка сообщения:
+    # он сохранён при генерации и не зависит от текущего словаря.
+    chat_messages: list[ChatMessage] = []
+    sanitized_list = list(preparation.sanitized_messages) if preparation else []
+    for index, message in enumerate(history_messages):
+        if preparation is not None:
+            own = (message.protection or {}).get("sanitized")
+            if own:
+                text = own
+            elif index < len(sanitized_list) - 1:
+                text = sanitized_list[index]
+            else:
+                text = message.content
+        else:
+            text = message.content
+        chat_messages.append(ChatMessage(role=message.role, content=text))
+
+    if preparation is not None:
+        user_sanitized = sanitized_list[-1] if sanitized_list else payload.content
+    else:
+        user_sanitized = payload.content
+    chat_messages.append(ChatMessage(role="user", content=user_sanitized))
 
     # Веб-поиск выполняется ДО обращения к LLM и только один раз на запрос:
     # автоматические «уточняющие» поиски модели недопустимы, так как
@@ -299,12 +381,27 @@ async def create_message(
     )
 
     # Сообщение пользователя.
+    user_protection: dict = {}
+    if preparation is not None:
+        # В снимке сообщения храним sanitized-текст: он пойдёт в следующий turn,
+        # а не восстановленный приватный.
+        user_protection = {
+            "mode": mode.value,
+            "preparation_id": str(preparation.id),
+            "sanitized": user_sanitized,
+            "restored": True,
+        }
+        # Ревизия меняется после каждого сообщения: старая подготовка больше не
+        # может быть использована для следующей отправки.
+        conversation.protection_revision += 1
+
     user_message = Message(
         conversation_id=conversation.id,
         role="user",
         content=payload.content,
         status=MessageStatus.COMPLETED.value,
         model_profile_id=model.id,
+        protection=user_protection,
     )
     session.add(user_message)
     await session.flush()
@@ -372,6 +469,8 @@ async def create_message(
             provider_id=provider.id,
             model_profile_id=model.id,
             billing=billing,
+            # В гибриде ответ придёт с псевдонимами и будет восстановлен локально.
+            preparation_id=preparation.id if preparation is not None else None,
         )
     )
 
