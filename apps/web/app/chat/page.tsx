@@ -32,6 +32,14 @@ import { PageHeading } from "@/components/page-heading";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -41,6 +49,7 @@ import {
   getToken,
   Message,
   ModelProfile,
+  ProtectionPreview,
   setToken,
   UsageRecord,
   UsageSummary,
@@ -53,6 +62,34 @@ const EXAMPLE_PROMPTS = [
   "Составь план проверки бюджета на месяц",
   "Помоги сформулировать письмо клиенту",
 ];
+
+/**
+ * Режимы обработки данных (ADR-0007).
+ *
+ * Выбирает пользователь; административных ограничений нет. `local_only`
+ * пока недоступен: локальный runtime появится отдельным срезом, а показывать
+ * неработающий выбор нельзя.
+ */
+const PROTECTION_MODES = [
+  {
+    value: "cloud_controlled",
+    label: "Облако",
+    hint: "Исходный текст уходит выбранной модели. Перед отправкой показываем, какие данные найдены.",
+    disabled: false,
+  },
+  {
+    value: "protected_hybrid",
+    label: "Защищённый гибрид",
+    hint: "Наружу уходит только очищенный текст с псевдонимами; ответ восстанавливается локально.",
+    disabled: false,
+  },
+  {
+    value: "local_only",
+    label: "Только локально",
+    hint: "Внешние вызовы запрещены. Локальный runtime ещё не подключён — режим появится позже.",
+    disabled: true,
+  },
+] as const;
 
 /**
  * Страница чата.
@@ -83,6 +120,21 @@ export default function ChatPage() {
   // веб-поиск действительно включён (WEB_SEARCH_ENABLED=1).
   const [webSearchAvailable, setWebSearchAvailable] = useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  // Защищённые режимы (ADR-0007): переключатель показывается только когда
+  // сервер подтвердил готовность, а не по одному факту наличия кода.
+  const [protectionAvailable, setProtectionAvailable] = useState(false);
+  const [protectionMode, setProtectionMode] =
+    useState<string>("cloud_controlled");
+  // Preview подготовки: показывается до отправки, пока пользователь не
+  // подтвердит именно этот sanitized-текст.
+  const [protectionPreview, setProtectionPreview] =
+    useState<ProtectionPreview | null>(null);
+  const [pendingSend, setPendingSend] = useState<{
+    conversationId: string;
+    text: string;
+    options: { reasoningDepth?: ReasoningDepth };
+  } | null>(null);
+  const [protectionBusy, setProtectionBusy] = useState(false);
 
   /**
    * Загружает диалоги, модели, сводку расходов и записи usage.
@@ -95,12 +147,15 @@ export default function ChatPage() {
         api.models(),
         api.usageSummary().catch(() => null),
         api.usageRecords().catch(() => [] as UsageRecord[]),
-        api.capabilities().catch(() => ({ web_search: false })),
+        api
+          .capabilities()
+          .catch(() => ({ web_search: false, protection: undefined })),
       ]);
       setConversations(c);
       setModels(m);
       setSummary(s);
       setWebSearchAvailable(caps.web_search);
+      setProtectionAvailable(Boolean(caps.protection?.enabled));
       const byMessage: Record<string, UsageRecord> = {};
       for (const record of records) {
         if (record.message_id) byMessage[record.message_id] = record;
@@ -112,6 +167,7 @@ export default function ChatPage() {
         setCurrentId(c[0].id);
         const detail = await api.getConversation(c[0].id);
         setMessages(detail.messages);
+        setProtectionMode(detail.protection_mode);
       }
     } catch {
       setError("Не удалось загрузить данные.");
@@ -138,6 +194,7 @@ export default function ChatPage() {
     try {
       const detail = await api.getConversation(id);
       setMessages(detail.messages);
+      setProtectionMode(detail.protection_mode);
     } catch {
       setError("Не удалось открыть диалог.");
     }
@@ -195,6 +252,31 @@ export default function ChatPage() {
    * @param content Текст сообщения.
    * @param options Параметры запроса (глубина рассуждений).
    */
+  /** Возвращает id диалога, создавая его лениво при первом сообщении. */
+  async function ensureConversation(): Promise<string | null> {
+    if (currentId) return currentId;
+    try {
+      const conv = await api.createConversation({ title: "Новый диалог" });
+      setConversations((c) => [conv, ...c]);
+      setCurrentId(conv.id);
+      // Выбранный до создания режим применяем сразу: иначе первое сообщение
+      // ушло бы в облако, хотя пользователь выбрал гибрид.
+      if (protectionAvailable && protectionMode !== "cloud_controlled") {
+        await api.setProtectionMode(conv.id, protectionMode);
+      }
+      return conv.id;
+    } catch {
+      setError("Не удалось создать диалог.");
+      return null;
+    }
+  }
+
+  /**
+   * Отправляет сообщение: в гибриде сначала готовит preview, иначе сразу.
+   *
+   * @param content Текст сообщения.
+   * @param options Параметры запроса (глубина рассуждений).
+   */
   async function send(
     content: string,
     options: { reasoningDepth?: ReasoningDepth } = {},
@@ -203,20 +285,97 @@ export default function ChatPage() {
     if (!text || streaming) return;
     setError(null);
 
-    // Диалог создаётся лениво: пользователь может начать писать сразу.
-    let conversationId = currentId;
-    if (!conversationId) {
+    const conversationId = await ensureConversation();
+    if (!conversationId) return;
+
+    // В гибриде отправка без подтверждённого preview запрещена сервером:
+    // показываем пользователю, что именно уйдёт модели.
+    if (protectionAvailable && protectionMode === "protected_hybrid") {
+      setProtectionBusy(true);
       try {
-        const conv = await api.createConversation({ title: "Новый диалог" });
-        setConversations((c) => [conv, ...c]);
-        setCurrentId(conv.id);
-        conversationId = conv.id;
-      } catch {
-        setError("Не удалось создать диалог.");
-        return;
+        const preview = await api.prepareProtection(conversationId, text);
+        setProtectionPreview(preview);
+        setPendingSend({ conversationId, text, options });
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Не удалось подготовить защищённый запрос.",
+        );
+      } finally {
+        setProtectionBusy(false);
       }
+      return;
     }
 
+    await deliver(conversationId, text, options);
+  }
+
+  /** Подтверждает preview и отправляет именно тот sanitized-текст. */
+  async function confirmProtection() {
+    if (!protectionPreview || !pendingSend) return;
+    setProtectionBusy(true);
+    try {
+      await api.commitProtection(pendingSend.conversationId, {
+        preparation_id: protectionPreview.preparation_id,
+        digest: protectionPreview.digest,
+        revision: protectionPreview.revision,
+      });
+      const { preparation_id } = protectionPreview;
+      const pending = pendingSend;
+      setProtectionPreview(null);
+      setPendingSend(null);
+      await deliver(
+        pending.conversationId,
+        pending.text,
+        pending.options,
+        preparation_id,
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Не удалось подтвердить подготовку.",
+      );
+    } finally {
+      setProtectionBusy(false);
+    }
+  }
+
+  /** Закрывает preview без отправки: наружу ничего не уходит. */
+  function cancelProtection() {
+    setProtectionPreview(null);
+    setPendingSend(null);
+  }
+
+  /** Меняет режим защиты диалога (ADR-0007). */
+  async function changeProtectionMode(mode: string) {
+    setProtectionMode(mode);
+    if (!currentId) return; // применится при создании диалога
+    try {
+      await api.setProtectionMode(currentId, mode);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Не удалось сменить режим.",
+      );
+      void refreshCurrent();
+    }
+  }
+
+  /**
+   * Собственно отправка и подписка на SSE-поток.
+   *
+   * @param conversationId Диалог.
+   * @param text Текст сообщения.
+   * @param options Параметры запроса.
+   * @param preparationId Подтверждённая подготовка (только для гибрида).
+   */
+  async function deliver(
+    conversationId: string,
+    text: string,
+    options: { reasoningDepth?: ReasoningDepth },
+    preparationId?: string,
+  ) {
     // Оптимистично показываем вопрос пользователя до ответа сервера.
     setMessages((prev) => [
       ...prev,
@@ -241,6 +400,7 @@ export default function ChatPage() {
         // Веб-поиск — разовая операция на сообщение, а не режим сессии:
         // результаты поиска попадают во вход запроса и увеличивают его цену.
         webSearchAvailable && webSearchEnabled,
+        preparationId,
       );
       setStreamingId(generation_id);
       setStreaming(true);
@@ -526,6 +686,45 @@ export default function ChatPage() {
             </div>
           )}
 
+          {/* Режим обработки данных (ADR-0007). Показываем только когда
+              сервер подтвердил готовность: переключатель над незавершённой
+              защитой запрещён. */}
+          {protectionAvailable && (
+            <div
+              className="flex flex-col gap-1 px-4 pt-3"
+              role="radiogroup"
+              aria-label="Режим обработки данных"
+            >
+              <span className="text-muted-foreground text-pah-xs">
+                Режим обработки данных
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {PROTECTION_MODES.map((item) => (
+                  <Button
+                    key={item.value}
+                    type="button"
+                    size="sm"
+                    role="radio"
+                    aria-checked={protectionMode === item.value}
+                    variant={
+                      protectionMode === item.value ? "default" : "outline"
+                    }
+                    disabled={item.disabled || protectionBusy}
+                    onClick={() => void changeProtectionMode(item.value)}
+                  >
+                    {item.label}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-muted-foreground text-pah-xs">
+                {
+                  PROTECTION_MODES.find((item) => item.value === protectionMode)
+                    ?.hint
+                }
+              </p>
+            </div>
+          )}
+
           <ChatInput
             models={chatModels}
             selectedModel={selectedModel}
@@ -550,6 +749,83 @@ export default function ChatPage() {
           />
         </section>
       </div>
+
+      {/* Preview подготовки: пользователь видит, что именно уйдёт модели,
+          и подтверждает конкретный digest. Наружу до подтверждения ничего
+          не отправляется. */}
+      <Dialog
+        open={protectionPreview !== null}
+        onOpenChange={(open) => {
+          if (!open) cancelProtection();
+        }}
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Проверка перед отправкой</DialogTitle>
+            <DialogDescription>
+              {protectionPreview?.note ??
+                "Сверьте очищенный текст: детектор мог пропустить данные."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {protectionPreview && (
+            <div className="flex flex-col gap-3">
+              {protectionPreview.entities.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {protectionPreview.entities.map((entity) => (
+                    <Badge key={entity.placeholder} variant="secondary">
+                      {entity.placeholder} · {entity.category} ×
+                      {entity.occurrences}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="flex flex-col gap-1">
+                  <span className="text-pah-sm font-medium">Ваш текст</span>
+                  <pre className="bg-muted max-h-72 overflow-auto rounded-md p-2 text-pah-xs whitespace-pre-wrap">
+                    {protectionPreview.private_messages.join("\n\n")}
+                  </pre>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-pah-sm font-medium">
+                    Что уйдёт модели
+                  </span>
+                  <pre className="bg-muted max-h-72 overflow-auto rounded-md p-2 text-pah-xs whitespace-pre-wrap">
+                    {protectionPreview.sanitized_text}
+                  </pre>
+                </div>
+              </div>
+
+              <Alert>
+                <AlertDescription>
+                  Исходные значения останутся на сервере приложения и будут
+                  восстановлены в ответе. Проверьте очищенный текст: локальный
+                  детектор может пропустить данные, а полной анонимности не
+                  гарантирует.
+                </AlertDescription>
+              </Alert>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={cancelProtection}
+              disabled={protectionBusy}
+            >
+              Отмена
+            </Button>
+            <Button
+              onClick={() => void confirmProtection()}
+              disabled={protectionBusy}
+            >
+              {protectionBusy ? "Отправка…" : "Подтвердить и отправить"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

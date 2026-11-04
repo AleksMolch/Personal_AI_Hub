@@ -195,6 +195,10 @@ export interface Conversation {
   model_profile_id: string | null;
   system_instruction: string | null;
   archived: boolean;
+  /** Режим защиты диалога (ADR-0007). */
+  protection_mode: string;
+  /** Ревизия контекста: подготовка с другой ревизией отклоняется. */
+  protection_revision: number;
 }
 
 export interface Message {
@@ -205,7 +209,40 @@ export interface Message {
   parent_id: string | null;
   status: string;
   model_snapshot: Record<string, unknown>;
+  /** Снимок защиты: mode, preparation_id, sanitized, restored. */
+  protection?: Record<string, unknown>;
   error_code: string | null;
+}
+
+/**
+ * Найденная в тексте сущность (без исходного значения).
+ *
+ * Нужна панели подготовки: пользователь видит, что именно заменено и сколько
+ * раз, но исходные значения остаются только в приватном preview.
+ */
+export interface ProtectionEntity {
+  placeholder: string;
+  category: string;
+  occurrences: number;
+}
+
+/**
+ * Результат подготовки защищённого запроса.
+ *
+ * `digest` и `revision` нужно вернуть в commit без изменений: сервер примет
+ * только тот preview, который пользователь видел.
+ */
+export interface ProtectionPreview {
+  preparation_id: string;
+  mode: string;
+  revision: number;
+  digest: string;
+  private_messages: string[];
+  sanitized_messages: string[];
+  sanitized_text: string;
+  entities: ProtectionEntity[];
+  expires_at: string | null;
+  note: string;
 }
 
 export interface ConversationDetail extends Conversation {
@@ -473,6 +510,8 @@ export const api = {
     modelProfileId?: string,
     reasoningDepth?: "low" | "medium" | "high",
     webSearch?: boolean,
+    /** Подтверждённая подготовка: обязательна в режиме protected_hybrid. */
+    preparationId?: string,
   ) =>
     request<{ generation_id: string }>(
       `/api/v1/conversations/${conversationId}/messages`,
@@ -483,9 +522,41 @@ export const api = {
           model_profile_id: modelProfileId ?? null,
           reasoning_depth: reasoningDepth ?? null,
           web_search: webSearch ?? false,
+          preparation_id: preparationId ?? null,
         }),
       },
     ),
+  /** Переключает режим защиты диалога; смена режима увеличивает ревизию. */
+  setProtectionMode: (conversationId: string, mode: string) =>
+    request<Conversation>(`/api/v1/conversations/${conversationId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ protection_mode: mode }),
+    }),
+  /** Готовит sanitized-контекст и показывает preview (ничего не отправляет). */
+  prepareProtection: (conversationId: string, text: string) =>
+    request<ProtectionPreview>(
+      `/api/v1/protection/conversations/${conversationId}/prepare`,
+      {
+        method: "POST",
+        body: JSON.stringify({ text }),
+      },
+    ),
+  /** Подтверждает конкретный preview; повторный вызов идемпотентен. */
+  commitProtection: (
+    conversationId: string,
+    body: { preparation_id: string; digest: string; revision: number },
+  ) =>
+    request<{
+      preparation_id: string;
+      status: string;
+      revision: number;
+      sanitized_text: string;
+      entities_count: number;
+      note: string;
+    }>(`/api/v1/protection/conversations/${conversationId}/commit`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   cancelGeneration: (id: string) =>
     request<{ status: string }>(`/api/v1/generations/${id}/cancel`, {
       method: "POST",
