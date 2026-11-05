@@ -95,6 +95,12 @@ class ProviderCredential(Base, TimestampMixin):
     provider_type: Mapped[str] = mapped_column(String(64), nullable=False)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
     base_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    # ADR-0007: провайдер объявлен локальным (Ollama/LM Studio на этом хосте).
+    # Нужен для режима local_only: отправлять данные «локально» можно только
+    # тому, кто действительно локальный, и это решение пользователя.
+    is_local: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
     # Зашифрованный ключ (Fernet). Никогда не возвращается API.
     encrypted_secret: Mapped[str] = mapped_column(String(2048), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

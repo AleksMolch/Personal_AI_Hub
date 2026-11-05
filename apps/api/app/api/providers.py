@@ -48,6 +48,7 @@ def _to_out(provider: ProviderCredential) -> ProviderOut:
         priority=provider.priority,
         currency=provider.currency,
         key_mask=mask,
+        is_local=provider.is_local,
         created_at=provider.created_at,
         updated_at=provider.updated_at,
     )
@@ -164,6 +165,7 @@ async def create_provider(
         currency=payload.currency.upper(),
         priority=payload.priority,
         enabled=payload.enabled,
+        is_local=payload.is_local,
     )
     session.add(provider)
     await session.commit()

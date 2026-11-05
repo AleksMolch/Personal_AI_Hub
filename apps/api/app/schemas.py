@@ -84,6 +84,9 @@ class ProviderCreate(BaseModel):
     currency: str = Field(default="USD", min_length=3, max_length=3)
     priority: int = Field(default=100, ge=0)
     enabled: bool = True
+    # ADR-0007: пользователь явно объявляет провайдера локальным. Нужно для
+    # режима local_only; по base_url локальность не угадываем.
+    is_local: bool = False
 
     @field_validator("base_url")
     @classmethod
@@ -98,6 +101,7 @@ class ProviderUpdate(BaseModel):
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     priority: int | None = Field(default=None, ge=0)
     enabled: bool | None = None
+    is_local: bool | None = None
 
     @field_validator("base_url")
     @classmethod
@@ -118,6 +122,7 @@ class ProviderOut(BaseModel):
     priority: int
     currency: str
     key_mask: str
+    is_local: bool
     created_at: datetime
     updated_at: datetime
 

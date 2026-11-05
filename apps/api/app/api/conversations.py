@@ -251,11 +251,23 @@ async def create_message(
     # запрещены, пока локальный runtime не реализован (срез 6).
     mode = ProtectionMode(conversation.protection_mode)
     if mode == ProtectionMode.LOCAL_ONLY:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            "Режим «Только локально» ещё не поддерживается: внешние вызовы "
-            "запрещены. Переключите режим диалога.",
-        )
+        # Внешние вызовы запрещены. Провайдер должен быть явно помечен
+        # локальным: определять по base_url нельзя — за 127.0.0.1 может стоять
+        # туннель в облако.
+        if not provider.is_local:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Провайдер выбранной модели не помечен как локальный. В режиме "
+                "«Только локально» внешние вызовы запрещены: отметьте локальный "
+                "провайдер (Ollama/LM Studio) или смените режим. "
+                "(PROTECTION_LOCAL_PROVIDER_REQUIRED)",
+            )
+        if payload.web_search:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "В режиме «Только локально» веб-поиск запрещён: это внешний "
+                "запрос. (PROTECTION_LOCAL_WEB_SEARCH_FORBIDDEN)",
+            )
 
     preparation = None
     if mode == ProtectionMode.PROTECTED_HYBRID:

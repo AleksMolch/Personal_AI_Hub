@@ -23,7 +23,15 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from personal_hub.config import get_settings
 from personal_hub.db.engine import get_session
-from personal_hub.models import Conversation, Message, MessageStatus, ProtectionEntity, User
+from personal_hub.models import (
+    Conversation,
+    Message,
+    MessageStatus,
+    ModelProfile,
+    ProtectionEntity,
+    ProviderCredential,
+    User,
+)
 from personal_hub.protection.detector import detect
 from personal_hub.protection.errors import ProtectionError
 from personal_hub.protection.modes import ProtectionMode
@@ -103,6 +111,58 @@ async def _history(
         .order_by(Message.created_at, Message.id)
     )
     return list(result.scalars().all())
+
+
+@router.get("/local-runtime", response_model=dict)
+async def local_runtime_readiness(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Сообщает, готов ли локальный режим: есть ли помеченные локальные модели.
+
+    Готовность не проверяет сеть и не угадывает локальность по адресу: она
+    честно сообщает только то, что пользователь объявил сам. Реальный runtime
+    (Ollama/LM Studio) должен быть запущен пользователем отдельно; если его
+    нет, вызов провайдера завершится ошибкой соединения, а не тихой отправкой
+    в облако.
+
+    Args:
+        user: Текущий пользователь.
+        session: Асинхронная сессия.
+
+    Returns:
+        Флаг доступности локального режима и список локальных моделей.
+    """
+    rows = (
+        await session.execute(
+            select(ModelProfile, ProviderCredential)
+            .join(ProviderCredential, ModelProfile.provider_id == ProviderCredential.id)
+            .where(
+                ProviderCredential.user_id == user.id,
+                ProviderCredential.enabled.is_(True),
+                ProviderCredential.is_local.is_(True),
+                ModelProfile.enabled.is_(True),
+            )
+        )
+    ).all()
+    return {
+        "available": bool(rows),
+        "models": [
+            {
+                "model_profile_id": str(model.id),
+                "display_name": model.display_name or model.external_model_id,
+                "provider": provider.display_name,
+            }
+            for model, provider in rows
+        ],
+        "note": (
+            "Локальный провайдер объявлен пользователем; доступность самого "
+            "runtime проверяется при вызове."
+            if rows
+            else "Нет моделей локального провайдера. Добавьте Ollama/LM Studio "
+            "и отметьте провайдера как локальный."
+        ),
+    }
 
 
 @router.post(
