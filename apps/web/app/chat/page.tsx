@@ -86,8 +86,8 @@ const PROTECTION_MODES = [
   {
     value: "local_only",
     label: "Только локально",
-    hint: "Внешние вызовы запрещены. Локальный runtime ещё не подключён — режим появится позже.",
-    disabled: true,
+    hint: "Данные уходят только провайдеру, помеченному локальным; веб-поиск запрещён. Нужен запущенный Ollama/LM Studio.",
+    disabled: false,
   },
 ] as const;
 
@@ -734,7 +734,10 @@ export default function ChatPage() {
             isStreaming={streaming}
             value={draft}
             onValueChange={setDraft}
-            webSearchAvailable={webSearchAvailable}
+            webSearchAvailable={
+              // В локальном режиме поиск — внешний вызов, сервер его отклонит.
+              webSearchAvailable && protectionMode !== "local_only"
+            }
             webSearch={webSearchEnabled}
             onWebSearchChange={setWebSearchEnabled}
             remainingBudget={
