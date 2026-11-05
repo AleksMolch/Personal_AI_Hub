@@ -643,3 +643,15 @@ class ProtectionCommitOut(BaseModel):
     sanitized_text: str
     entities_count: int
     note: str
+
+
+class ProtectionAuditOut(BaseModel):
+    """Событие журнала защищённых операций (без содержимого сообщений)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    action: str
+    conversation_id: uuid.UUID | None
+    details: dict
+    created_at: datetime

@@ -561,3 +561,33 @@ class ProtectionEntity(Base, TimestampMixin):
     placeholder: Mapped[str] = mapped_column(String(64), nullable=False)
     category: Mapped[str] = mapped_column(String(32), nullable=False)
     ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class ProtectionAuditLog(Base, TimestampMixin):
+    """Журнал защищённых операций (ADR-0007, срез 7).
+
+    Хранит только метаданные: действие, диалог, идентификатор подготовки,
+    ревизию. Исходные значения и sanitized-текст в журнал не попадают — он
+    нужен для разбора инцидентов, а не как вторая копия данных.
+    """
+
+    __tablename__ = "protection_audit_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # Действие: prepare | commit | message_sent | restoration_failed и т. п.
+    action: Mapped[str] = mapped_column(String(48), nullable=False)
+    # Метаданные без содержимого сообщений: preparation_id, revision, counts.
+    details: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)

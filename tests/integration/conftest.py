@@ -36,7 +36,8 @@ async def clean_db() -> None:
                 "conversations, messages, price_snapshots, fx_rates, budgets, "
                 "usage_records, cost_reservations, assets, jobs, "
                 "knowledge_bases, documents, chunks, "
-                "protection_preparations, protection_entities "
+                "protection_preparations, protection_entities, "
+                "protection_audit_log "
                 "RESTART IDENTITY CASCADE"
             )
         )

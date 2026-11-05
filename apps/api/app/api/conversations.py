@@ -24,7 +24,11 @@ from personal_hub.models import (
 )
 from personal_hub.protection.errors import ProtectionError
 from personal_hub.protection.modes import ProtectionMode
-from personal_hub.protection.repository import get_preparation, payload_digest
+from personal_hub.protection.repository import (
+    get_preparation,
+    payload_digest,
+    record_audit,
+)
 from personal_hub.providers.base import (
     Capability,
     ChatMessage,
@@ -413,6 +417,23 @@ async def create_message(
     )
     session.add(user_message)
     await session.flush()
+
+    # Журнал отправки: только метаданные, без текста сообщения.
+    if mode in (ProtectionMode.PROTECTED_HYBRID, ProtectionMode.LOCAL_ONLY):
+        await record_audit(
+            session,
+            user_id=user.id,
+            conversation_id=conversation.id,
+            action="message_sent",
+            details={
+                "mode": mode.value,
+                "preparation_id": (
+                    str(preparation.id) if preparation is not None else None
+                ),
+                "revision": conversation.protection_revision,
+                "local_provider": bool(provider.is_local),
+            },
+        )
 
     # Сообщение-генерация (ассистент).
     # reasoning_depth и источники веб-поиска сохраняются в снимке: история

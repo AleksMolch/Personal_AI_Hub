@@ -26,7 +26,7 @@ docker compose -f compose.yaml -f infra/compose/test.yaml run --rm test `
   sh -c "... alembic upgrade head; pytest tests/integration -q"
 ```
 
-Результат: **101 passed**, включая:
+Результат: **103 passed**, включая:
 
 - 8 тестов подготовки и vault (шифротекст, идемпотентность, отказы);
 - 6 тестов гибридного чата (перехват payload, stale, подмена, cloud, local_only);
@@ -34,9 +34,10 @@ docker compose -f compose.yaml -f infra/compose/test.yaml run --rm test `
   блокирует);
 - 4 теста `local_only` (приватный контекст без псевдонимов, отказ облачному
   провайдеру, запрет веб-поиска, readiness);
-- 8 тестов HTTP-контракта prepare/commit.
+- 8 тестов HTTP-контракта prepare/commit;
+- 2 теста журнала аудита (метаданные без содержимого, изоляция пользователей).
 
-Миграции: `alembic current` → `0011_local_providers (head)`.
+Миграции: `alembic current` → `0012_protection_audit (head)`.
 
 ## 3. Frontend
 

@@ -28,6 +28,7 @@ from personal_hub.models import (
     Message,
     MessageStatus,
     ModelProfile,
+    ProtectionAuditLog,
     ProtectionEntity,
     ProviderCredential,
     User,
@@ -39,6 +40,7 @@ from personal_hub.protection.repository import (
     commit_preparation,
     create_preparation,
     payload_digest,
+    record_audit,
 )
 from personal_hub.protection.sanitizer import sanitize
 from personal_hub.protection.vault import EntityVault
@@ -48,6 +50,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_current_user
 from app.schemas import (
+    ProtectionAuditOut,
     ProtectionCommitOut,
     ProtectionCommitRequest,
     ProtectionEntityOut,
@@ -111,6 +114,38 @@ async def _history(
         .order_by(Message.created_at, Message.id)
     )
     return list(result.scalars().all())
+
+
+@router.get("/audit", response_model=list[ProtectionAuditOut])
+async def list_audit(
+    limit: int = 100,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[ProtectionAuditOut]:
+    """Возвращает журнал защищённых операций пользователя.
+
+    Журнал содержит метаданные (действие, диалог, подготовка, ревизия) и не
+    содержит текстов сообщений или исходных значений: он нужен для разбора
+    инцидентов, а не как копия данных.
+
+    Args:
+        limit: Сколько последних событий вернуть (1..500).
+        user: Текущий пользователь.
+        session: Асинхронная сессия.
+
+    Returns:
+        События от новых к старым.
+    """
+    safe_limit = max(1, min(limit, 500))
+    rows = (
+        await session.execute(
+            select(ProtectionAuditLog)
+            .where(ProtectionAuditLog.user_id == user.id)
+            .order_by(ProtectionAuditLog.created_at.desc())
+            .limit(safe_limit)
+        )
+    ).scalars().all()
+    return [ProtectionAuditOut.model_validate(row) for row in rows]
 
 
 @router.get("/local-runtime", response_model=dict)
@@ -249,6 +284,21 @@ async def prepare_protection(
         for placeholder, entry in vault.entries.items()
     ]
 
+    # Журнал: кто и когда готовил запрос. Тексты сюда не попадают.
+    await record_audit(
+        session,
+        user_id=user.id,
+        conversation_id=conversation_id,
+        action="prepare",
+        details={
+            "preparation_id": str(preparation.id),
+            "revision": preparation.revision,
+            "entities": len(entities),
+            "messages": len(sanitized_messages),
+        },
+    )
+    await session.commit()
+
     return ProtectionPreviewOut(
         preparation_id=preparation.id,
         mode=preparation.mode,
@@ -311,6 +361,19 @@ async def commit_protection(
         )
         or 0
     )
+    await record_audit(
+        session,
+        user_id=user.id,
+        conversation_id=conversation_id,
+        action="commit",
+        details={
+            "preparation_id": str(preparation.id),
+            "revision": preparation.revision,
+            "status": preparation.status,
+            "entities": entities_count,
+        },
+    )
+    await session.commit()
     return ProtectionCommitOut(
         preparation_id=preparation.id,
         status=preparation.status,

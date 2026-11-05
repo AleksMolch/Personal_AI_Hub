@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from personal_hub.models import (
     Conversation,
     PreparationStatus,
+    ProtectionAuditLog,
     ProtectionEntity,
     ProtectionPreparation,
 )
@@ -294,6 +295,37 @@ async def load_vault(
             scope=str(preparation_id),
         )
     return vault
+
+
+async def record_audit(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    conversation_id: uuid.UUID | None,
+    action: str,
+    details: dict | None = None,
+) -> None:
+    """Пишет событие в журнал защищённых операций.
+
+    Журнал содержит только метаданные: идентификаторы, ревизию, счётчики.
+    Тексты сообщений и значения vault сюда не передаются — иначе журнал стал бы
+    второй копией чувствительных данных.
+
+    Args:
+        session: Асинхронная сессия.
+        user_id: Владелец.
+        conversation_id: Диалог (может быть None для операций без диалога).
+        action: Стабильное имя действия (`prepare`, `commit`, `message_sent`).
+        details: Метаданные без содержимого.
+    """
+    session.add(
+        ProtectionAuditLog(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            action=action,
+            details=details or {},
+        )
+    )
 
 
 async def count_preparations(session: AsyncSession, *, user_id: uuid.UUID) -> int:
