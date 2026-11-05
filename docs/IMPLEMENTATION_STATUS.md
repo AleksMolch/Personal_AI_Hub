@@ -326,9 +326,20 @@
 - [x] E2E: `protection.spec.ts` (opt-in `PROTECTION_E2E=1`) проверяет
       переключатель, preview с `[EMAIL_1]` и отмену без отправки; полный
       прогон — 9 passed, 1 skipped; smoke/a11y/login не изменились
-- [ ] Срезы 6–9: `local_only` runtime (Ollama/LM Studio) и запрет egress,
-      модель без цены (`cost unknown`), ручная правка preview, egress-изоляция,
-      backup/retention, `docs/security/*` и финальная приёмка
+- [x] Срез 6a — модель без цены: генерация разрешена без PriceSnapshot;
+      резервирование не создаётся (лимит не гарантируется), usage сохраняется
+      с `cost_state=unknown` и `cost_amount=NULL`; в снимке сообщения
+      `pricing.known=false` и предупреждение. Миграция 0010 делает
+      `usage_records.cost_amount` nullable, суммарные отчёты трактуют NULL как
+      отсутствие данных, а не ноль. Тесты: 2 integration, обновлён прежний
+      тест «цена обязательна» (поведение изменено осознанно)
+- [x] Документы `docs/security/`: DATA_FLOW, PROTECTION_MODES,
+      PSEUDONYMIZATION, THREAT_MODEL, TEST_REPORT (фактические команды и
+      результаты, включая ограничения)
+- [ ] Срез 6b — `local_only`: локальный runtime (Ollama/LM Studio), проверка
+      готовности, запрет egress, ручная правка sanitized-текста в preview
+- [ ] Срезы 7–9: аудит/логи, backup/retention, egress-изоляция, финальная
+      приёмка и полный E2E-набор защищённых режимов
 
 ## Определение готовности Этапа 1
 Чистая установка по README, health, миграции, провайдеры, streaming chat,

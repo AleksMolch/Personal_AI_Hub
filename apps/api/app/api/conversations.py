@@ -230,13 +230,9 @@ async def create_message(
             )
         reasoning_depth = ReasoningDepth(payload.reasoning_depth)
 
-    # Цена обязательна: неизвестная цена блокирует запрос (strict mode).
+    # Цена нужна для резервирования, но не для самой генерации: модель без
+    # цены разрешена (ADR-0007). Тогда стоимость пишется как unknown, а не ноль.
     price = await get_latest_price(session, model.id)
-    if price is None:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            "Цена модели не задана. Задайте цену на странице «Модели».",
-        )
 
     # История для провайдера: завершённые сообщения + новое сообщение пользователя.
     history_result = await session.execute(
@@ -421,6 +417,16 @@ async def create_message(
             "model": model.external_model_id,
             "provider_type": provider.provider_type,
             "display_name": model.display_name,
+            # Честность: без цены стоимость unknown, а не ноль.
+            "pricing": {
+                "known": price is not None,
+                "warning": (
+                    None
+                    if price is not None
+                    else "Цена модели не задана: стоимость запроса неизвестна, "
+                    "денежный лимит не гарантируется."
+                ),
+            },
             "reasoning_depth": reasoning_depth.value if reasoning_depth else None,
             "web_search": {
                 "used": bool(search_context),
@@ -441,13 +447,16 @@ async def create_message(
     await session.flush()
 
     # Резервирование (может поднять BudgetExceededError → 402, всё откатывается).
-    billing = await check_and_reserve(
-        session,
-        user.id,
-        price=price,
-        estimated_units=estimated_units,
-        message_id=generation.id,
-    )
+    # Без цены резервировать нечего: вызов разрешён, но лимит не гарантируется.
+    billing = None
+    if price is not None:
+        billing = await check_and_reserve(
+            session,
+            user.id,
+            price=price,
+            estimated_units=estimated_units,
+            message_id=generation.id,
+        )
     await session.commit()
     await session.refresh(generation)
 

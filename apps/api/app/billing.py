@@ -146,7 +146,8 @@ async def _period_spend(
             UsageRecord.user_id == user_id, UsageRecord.occurred_at >= start
         )
     )
-    return Decimal(result.scalar_one())
+    # Сумма с NULL-строками может вернуть None, хотя coalesce обычно даёт 0.
+    return Decimal(result.scalar_one() or 0)
 
 
 async def _active_reservations(
@@ -238,6 +239,62 @@ async def release_reservation(session: AsyncSession, reservation_id: uuid.UUID) 
     if reservation is not None and reservation.status == ReservationStatus.ACTIVE.value:
         reservation.status = ReservationStatus.CANCELLED.value
         await session.flush()
+
+
+async def record_unknown_cost_usage(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    provider_id: uuid.UUID,
+    model_profile_id: uuid.UUID,
+    message_id: uuid.UUID | None,
+    usage: dict | None,
+    currency: str,
+) -> UsageRecord:
+    """Фиксирует usage модели без цены: стоимость неизвестна, а не ноль.
+
+    ADR-0007 требует разрешить модели без цены, но не выдавать неизвестную
+    стоимость за бесплатную. Резервирование не создаётся (ценить нечего),
+    поэтому денежный лимит для такого вызова не гарантируется.
+
+    Args:
+        session: Асинхронная сессия.
+        user_id: Владелец.
+        provider_id: Провайдер вызова.
+        model_profile_id: Модель.
+        message_id: Сообщение-генерация.
+        usage: Сырой usage провайдера (может быть None).
+        currency: Валюта бюджета пользователя.
+
+    Returns:
+        Запись с `cost_state=unknown` и `cost_amount=None`.
+    """
+    units = parse_usage(usage) if usage else {"input_tokens": 0, "output_tokens": 0}
+    units["operation"] = "chat"
+    record = UsageRecord(
+        user_id=user_id,
+        provider_id=provider_id,
+        model_profile_id=model_profile_id,
+        message_id=message_id,
+        units_json=units,
+        cost_amount=None,
+        currency=currency.upper(),
+        cost_state=CostState.UNKNOWN.value,
+        price_snapshot_id=None,
+        fx_rate_id=None,
+        provider_request_id=None,
+    )
+    session.add(record)
+    await session.flush()
+    return record
+
+
+async def base_currency_for_user(session: AsyncSession, user_id: uuid.UUID) -> str:
+    """Возвращает валюту бюджета пользователя или USD по умолчанию."""
+    currency = await session.scalar(
+        select(Budget.currency).where(Budget.user_id == user_id)
+    )
+    return str(currency) if currency else "USD"
 
 
 async def finalize_generation(

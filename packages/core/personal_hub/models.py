@@ -289,7 +289,10 @@ class UsageRecord(Base):
     )
     # Токены: input/output/cache_read/cache_write/reasoning.
     units_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
-    cost_amount: Mapped[Decimal] = mapped_column(Numeric(20, 10), nullable=False)
+    # NULL — стоимость неизвестна (модель без цены); ноль означал бы «бесплатно».
+    cost_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(20, 10), nullable=True
+    )
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
     cost_state: Mapped[str] = mapped_column(
         String(16), default=CostState.ESTIMATED.value, nullable=False

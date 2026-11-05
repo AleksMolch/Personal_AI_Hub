@@ -394,7 +394,8 @@ class UsageRecordOut(BaseModel):
 
     id: uuid.UUID
     units_json: dict
-    cost_amount: Decimal
+    # None — стоимость неизвестна (модель без цены), а не ноль.
+    cost_amount: Decimal | None
     currency: str
     cost_state: str
     model_profile_id: uuid.UUID | None

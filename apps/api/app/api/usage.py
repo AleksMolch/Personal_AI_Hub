@@ -47,10 +47,15 @@ async def usage_summary(
         )
     ).scalars().all()
 
+    # Неизвестная стоимость (модель без цены) в сумму не входит: NULL не ноль,
+    # иначе отчёт завышал бы «бесплатные» запросы нулевой стоимостью.
     today_cost = sum(
-        (r.cost_amount for r in records if r.occurred_at >= day_start), start=Decimal(0)
+        (r.cost_amount or Decimal(0) for r in records if r.occurred_at >= day_start),
+        start=Decimal(0),
     )
-    month_cost = sum((r.cost_amount for r in records), start=Decimal(0))
+    month_cost = sum(
+        (r.cost_amount or Decimal(0) for r in records), start=Decimal(0)
+    )
 
     def _tokens(key: str, since: datetime) -> int:
         return sum(int(r.units_json.get(key, 0)) for r in records if r.occurred_at >= since)

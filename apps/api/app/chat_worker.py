@@ -17,7 +17,13 @@ from personal_hub.protection.streaming import StreamingRestorer
 from personal_hub.providers.base import ChatProvider, ChatRequest, ProviderConnection
 from personal_hub.providers.errors import ProviderError
 
-from app.billing import BillingContext, finalize_generation, release_reservation
+from app.billing import (
+    BillingContext,
+    base_currency_for_user,
+    finalize_generation,
+    record_unknown_cost_usage,
+    release_reservation,
+)
 from app.generation_manager import GenerationState, generation_manager
 
 logger = logging.getLogger("api.chat")
@@ -148,16 +154,17 @@ async def run_generation(
         await _persist_result(
             generation_id, content, status, error_code, usage, protection=protection
         )
-        if billing is not None:
-            await _finalize_billing(
-                user_id=user_id,
-                provider_id=provider_id,
-                model_profile_id=model_profile_id,
-                message_id=generation_id,
-                usage=usage,
-                billing=billing,
-                completed=completed,
-            )
+        # Учёт нужен и без цены: usage сохраняется как unknown, иначе расход
+        # исчез бы из истории только потому, что цена не задана.
+        await _finalize_billing(
+            user_id=user_id,
+            provider_id=provider_id,
+            model_profile_id=model_profile_id,
+            message_id=generation_id,
+            usage=usage,
+            billing=billing,
+            completed=completed,
+        )
         await generation_manager.finish(state)
 
 
@@ -195,13 +202,29 @@ async def _finalize_billing(
     model_profile_id: uuid.UUID,
     message_id: uuid.UUID,
     usage: dict | None,
-    billing: BillingContext,
+    billing: BillingContext | None,
     completed: bool,
 ) -> None:
-    """Фиксирует расход или освобождает резервирование."""
+    """Фиксирует расход или освобождает резервирование.
+
+    Если цены не было (`billing is None`), вызов всё равно учтён: usage
+    сохраняется с `cost_state=unknown`, а не теряется и не превращается в ноль.
+    """
     factory = get_session_factory()
     async with factory() as session:
-        if completed:
+        if billing is None:
+            if usage:
+                currency = await base_currency_for_user(session, user_id)
+                await record_unknown_cost_usage(
+                    session,
+                    user_id=user_id,
+                    provider_id=provider_id,
+                    model_profile_id=model_profile_id,
+                    message_id=message_id,
+                    usage=usage,
+                    currency=currency,
+                )
+        elif completed:
             await finalize_generation(
                 session,
                 user_id=user_id,

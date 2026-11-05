@@ -281,7 +281,8 @@ export interface UsageSummary {
 export interface UsageRecord {
   id: string;
   units_json: Record<string, number>;
-  cost_amount: string;
+  /** null — стоимость неизвестна (модель без цены), а не ноль. */
+  cost_amount: string | null;
   currency: string;
   cost_state: string;
   model_profile_id: string | null;

@@ -157,7 +157,15 @@ async def test_budget_blocks_before_provider(client: AsyncClient, mock_provider)
     assert records == []
 
 
-async def test_message_requires_price(client: AsyncClient, mock_provider) -> None:
+async def test_message_without_price_is_allowed(
+    client: AsyncClient, mock_provider
+) -> None:
+    """Модель без цены разрешена: вызов не блокируется, стоимость unknown.
+
+    Поведение изменено в ADR-0007: неизвестная цена больше не запрещает
+    генерацию, но и не выдаётся за ноль. Детальный учёт проверяется в
+    `test_optional_price_model.py`.
+    """
     headers = await _bootstrap(client)
     model_id = await _model(client, headers, mock_provider)
 
@@ -167,7 +175,12 @@ async def test_message_requires_price(client: AsyncClient, mock_provider) -> Non
         json={"content": "Привет", "model_profile_id": model_id},
         headers=headers,
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 200
+    detail = await client.get(
+        f"/api/v1/conversations/{conv.json()['id']}", headers=headers
+    )
+    assistant = [m for m in detail.json()["messages"] if m["role"] == "assistant"][0]
+    assert assistant["model_snapshot"]["pricing"]["known"] is False
 
 
 async def test_budget_concurrency(client: AsyncClient) -> None:
