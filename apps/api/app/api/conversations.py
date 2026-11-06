@@ -513,6 +513,9 @@ async def create_message(
             billing=billing,
             # В гибриде ответ придёт с псевдонимами и будет восстановлен локально.
             preparation_id=preparation.id if preparation is not None else None,
+            # Локальная оценка нужна, если провайдер не пришлёт usage
+            # (частый случай у локальных runtime), чтобы расход не потерялся.
+            estimated_units=estimated_units,
         )
     )
 

@@ -140,5 +140,9 @@ async def test_model_without_price_is_not_blocked_by_budget(
     assert resp.status_code == 200, resp.text
     await _events(client, resp.json()["generation_id"], headers)
     records = (await client.get("/api/v1/usage/records", headers=headers)).json()
-    # Без usage провайдера запись не создаётся, но вызов не заблокирован.
-    assert all(record["cost_amount"] is None for record in records)
+    # Провайдер не прислал usage: пишем локальную оценку токенов, но стоимость
+    # всё равно unknown — вызов не должен исчезать из истории.
+    assert len(records) == 1
+    assert records[0]["cost_amount"] is None
+    assert records[0]["units_json"]["input_tokens"] > 0
+    assert records[0]["units_json"]["operation"] == "chat"

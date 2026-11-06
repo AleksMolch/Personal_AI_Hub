@@ -250,6 +250,7 @@ async def record_unknown_cost_usage(
     message_id: uuid.UUID | None,
     usage: dict | None,
     currency: str,
+    units: dict | None = None,
 ) -> UsageRecord:
     """Фиксирует usage модели без цены: стоимость неизвестна, а не ноль.
 
@@ -265,11 +266,20 @@ async def record_unknown_cost_usage(
         message_id: Сообщение-генерация.
         usage: Сырой usage провайдера (может быть None).
         currency: Валюта бюджета пользователя.
+        units: Готовая локальная оценка токенов, если провайдер не прислал usage.
 
     Returns:
         Запись с `cost_state=unknown` и `cost_amount=None`.
     """
-    units = parse_usage(usage) if usage else {"input_tokens": 0, "output_tokens": 0}
+    # Приоритет — фактический usage провайдера. Если его нет (локальные
+    # runtime часто не присылают usage), пишем локальную оценку токенов:
+    # это лучше, чем потерять запись о вызове совсем.
+    if units is None:
+        units = parse_usage(usage) if usage else {"input_tokens": 0, "output_tokens": 0}
+    else:
+        units = dict(units)
+        units.setdefault("input_tokens", 0)
+        units.setdefault("output_tokens", 0)
     units["operation"] = "chat"
     record = UsageRecord(
         user_id=user_id,

@@ -40,6 +40,7 @@ async def run_generation(
     model_profile_id: uuid.UUID,
     billing: BillingContext | None,
     preparation_id: uuid.UUID | None = None,
+    estimated_units: dict | None = None,
 ) -> None:
     """Выполняет генерацию: стримит, публикует события, фиксирует расход.
 
@@ -164,6 +165,7 @@ async def run_generation(
             usage=usage,
             billing=billing,
             completed=completed,
+            estimated_units=estimated_units,
         )
         await generation_manager.finish(state)
 
@@ -204,16 +206,21 @@ async def _finalize_billing(
     usage: dict | None,
     billing: BillingContext | None,
     completed: bool,
+    estimated_units: dict | None = None,
 ) -> None:
     """Фиксирует расход или освобождает резервирование.
 
     Если цены не было (`billing is None`), вызов всё равно учтён: usage
     сохраняется с `cost_state=unknown`, а не теряется и не превращается в ноль.
+    Когда провайдер не прислал usage (частый случай у локальных runtime),
+    запись создаётся по локальной оценке `estimated_units`.
     """
     factory = get_session_factory()
     async with factory() as session:
         if billing is None:
-            if usage:
+            # Пишем запись всегда для завершённого вызова: фактический usage,
+            # иначе локальная оценка токенов. Терять расход нельзя.
+            if usage or (completed and estimated_units):
                 currency = await base_currency_for_user(session, user_id)
                 await record_unknown_cost_usage(
                     session,
@@ -223,6 +230,7 @@ async def _finalize_billing(
                     message_id=message_id,
                     usage=usage,
                     currency=currency,
+                    units=None if usage else estimated_units,
                 )
         elif completed:
             await finalize_generation(
