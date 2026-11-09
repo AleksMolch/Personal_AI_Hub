@@ -43,12 +43,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   api,
   Conversation,
   eventSourceUrl,
@@ -70,35 +64,9 @@ const EXAMPLE_PROMPTS = [
 ];
 
 /**
- * Режимы обработки данных (ADR-0007).
- *
- * Выбирает пользователь; административных ограничений нет. Подписи кнопок
- * короткие, полное название и объяснение — в подсказке: строка режима должна
- * занимать одну линию, а не три.
+ * Режимы обработки данных теперь выбираются внутри композера
+ * (`components/chat/chat-input.tsx`), поэтому дублирующий список здесь не нужен.
  */
-const PROTECTION_MODES = [
-  {
-    value: "cloud_controlled",
-    label: "Облако",
-    fullLabel: "Облако с предупреждениями",
-    hint: "Исходный текст уходит выбранной модели. Перед отправкой показываем, какие данные найдены.",
-    disabled: false,
-  },
-  {
-    value: "protected_hybrid",
-    label: "Гибрид",
-    fullLabel: "Защищённый гибрид",
-    hint: "Наружу уходит только очищенный текст с псевдонимами; ответ восстанавливается локально.",
-    disabled: false,
-  },
-  {
-    value: "local_only",
-    label: "Локально",
-    fullLabel: "Только локально",
-    hint: "Данные уходят только провайдеру, помеченному локальным; веб-поиск запрещён. Нужен запущенный Ollama/LM Studio.",
-    disabled: false,
-  },
-] as const;
 
 /**
  * Страница чата.
@@ -708,46 +676,6 @@ export default function ChatPage() {
             </div>
           )}
 
-          {/* Режим обработки данных (ADR-0007). Показываем только когда
-              сервер подтвердил готовность: переключатель над незавершённой
-              защитой запрещён. */}
-          {protectionAvailable && (
-            <div
-              className="flex flex-wrap items-center gap-2 px-4 pt-3"
-              role="radiogroup"
-              aria-label="Режим обработки данных"
-            >
-              <span className="text-muted-foreground text-pah-xs">
-                Режим обработки данных
-              </span>
-              <TooltipProvider>
-                {PROTECTION_MODES.map((item) => (
-                  <Tooltip key={item.value}>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        size="sm"
-                        role="radio"
-                        aria-checked={protectionMode === item.value}
-                        aria-label={item.fullLabel}
-                        variant={
-                          protectionMode === item.value ? "default" : "outline"
-                        }
-                        disabled={item.disabled || protectionBusy}
-                        onClick={() => void changeProtectionMode(item.value)}
-                      >
-                        {item.label}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="max-w-xs">{item.hint}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                ))}
-              </TooltipProvider>
-            </div>
-          )}
-
           <ChatInput
             models={chatModels}
             selectedModel={selectedModel}
@@ -763,6 +691,10 @@ export default function ChatPage() {
             }
             webSearch={webSearchEnabled}
             onWebSearchChange={setWebSearchEnabled}
+            protectionAvailable={protectionAvailable}
+            protectionMode={protectionMode}
+            onProtectionModeChange={(mode) => void changeProtectionMode(mode)}
+            protectionBusy={protectionBusy}
             remainingBudget={
               summary
                 ? {

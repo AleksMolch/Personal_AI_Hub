@@ -11,11 +11,10 @@
 // не знает про API. Родитель (страница чата) решает, что делать с параметрами.
 //
 // Принципиальное ограничение: элементы управления отражают ТОЛЬКО реально
-// поддержанные возможности. «Веб-доступ» и «Локально» здесь отсутствуют
-// намеренно — backend их пока не реализует, а показывать неработающий тумблер
-// запрещено правилами проекта.
+// поддержанные возможности. Режим обработки данных показывается лишь когда
+// сервер подтвердил готовность (capabilities.protection.enabled).
 import { useId, useState } from "react";
-import { Brain, Globe, Paperclip, Send, Square } from "lucide-react";
+import { Brain, Globe, Paperclip, Send, Shield, Square } from "lucide-react";
 
 import { ModelPricingWarning } from "@/components/ui/model-pricing-warning";
 import { Badge } from "@/components/ui/badge";
@@ -101,7 +100,39 @@ interface ChatInputProps {
   webSearch?: boolean;
   /** Изменение режима веб-поиска. */
   onWebSearchChange?: (enabled: boolean) => void;
+  /** Доступны ли защищённые режимы (сервер подтвердил готовность). */
+  protectionAvailable?: boolean;
+  /** Текущий режим обработки данных диалога. */
+  protectionMode?: string;
+  /** Смена режима обработки данных. */
+  onProtectionModeChange?: (mode: string) => void;
+  /** Идёт смена режима или подготовка — переключатель блокируется. */
+  protectionBusy?: boolean;
 }
+
+/** Режимы обработки данных (ADR-0007). Подписи короткие: все элементы
+ *  управления должны умещаться в одну строку, поэтому полное название и
+ *  объяснение показываются внутри выпадающего меню. */
+const PROTECTION_MODES = [
+  {
+    value: "cloud_controlled",
+    label: "Облако",
+    fullLabel: "Облако с предупреждениями",
+    hint: "Исходный текст уходит выбранной модели. Перед отправкой показываем, какие данные найдены.",
+  },
+  {
+    value: "protected_hybrid",
+    label: "Гибрид",
+    fullLabel: "Защищённый гибрид",
+    hint: "Наружу уходит только очищенный текст с псевдонимами; ответ восстанавливается локально.",
+  },
+  {
+    value: "local_only",
+    label: "Локально",
+    fullLabel: "Только локально",
+    hint: "Данные уходят только провайдеру, помеченному локальным; веб-поиск запрещён. Нужен запущенный Ollama/LM Studio.",
+  },
+] as const;
 
 /**
  * Форма ввода сообщения с селекторами модели и глубины рассуждений.
@@ -123,12 +154,20 @@ export function ChatInput({
   webSearchAvailable = false,
   webSearch = false,
   onWebSearchChange,
+  protectionAvailable = false,
+  protectionMode = "cloud_controlled",
+  onProtectionModeChange,
+  protectionBusy = false,
 }: ChatInputProps) {
   const [reasoningDepth, setReasoningDepth] =
     useState<ReasoningDepth>("medium");
+  const [modeOpen, setModeOpen] = useState(false);
   const textareaId = useId();
   const webSearchId = useId();
   const selected = models.find((m) => m.id === selectedModel);
+  const currentMode =
+    PROTECTION_MODES.find((mode) => mode.value === protectionMode) ??
+    PROTECTION_MODES[0];
   // Без цены backend блокирует платный вызов, поэтому предупреждение не
   // скрывается пользователем: это не подсказка, а объяснение отказа.
   const showPricingWarning = Boolean(selected && !selected.hasPrice);
@@ -161,7 +200,7 @@ export function ChatInput({
 
   return (
     <div className="bg-background/95 supports-[backdrop-filter]:bg-background/75 border-t backdrop-blur">
-      <div className="mx-auto max-w-3xl space-y-3 p-4">
+      <div className="w-full space-y-3 p-4">
         {showPricingWarning && selected && (
           <ModelPricingWarning
             modelName={selected.name}
@@ -169,8 +208,11 @@ export function ChatInput({
           />
         )}
 
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="min-w-[200px] flex-1">
+        {/* Одна строка на всю ширину: модель, глубина рассуждений, режим
+            обработки данных и веб-доступ. На узких экранах строка
+            прокручивается по горизонтали, а не превращается в три этажа. */}
+        <div className="flex items-center gap-2 overflow-x-auto">
+          <div className="min-w-0 flex-1">
             <Label htmlFor="chat-model" className="sr-only">
               Модель
             </Label>
@@ -200,9 +242,14 @@ export function ChatInput({
           {selected?.supportsReasoning && (
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="outline" size="sm">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  aria-label={`Глубина рассуждений: ${currentLevel?.label ?? "Средняя"}`}
+                >
                   <Brain />
-                  Глубина: {currentLevel?.label ?? "Средняя"}
+                  {currentLevel?.label ?? "Средняя"}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-80">
@@ -250,11 +297,77 @@ export function ChatInput({
             </Popover>
           )}
 
+          {/* Режим обработки данных: выпадающее меню, как у глубины
+              рассуждений. Полные названия и подсказки — внутри меню, чтобы
+              строка оставалась однострочной. */}
+          {protectionAvailable && onProtectionModeChange && (
+            <Popover open={modeOpen} onOpenChange={setModeOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  disabled={protectionBusy}
+                  aria-label={`Режим обработки данных: ${currentMode.label}`}
+                  title="Облако, защищённый гибрид или только локально"
+                >
+                  <Shield />
+                  {currentMode.label}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80" align="start">
+                <div className="space-y-3">
+                  <div>
+                    <h4 className="text-pah-base font-medium">
+                      Режим обработки данных
+                    </h4>
+                    <p className="text-muted-foreground text-pah-sm">
+                      Выбирайте по чувствительности текста. Режим хранится в
+                      диалоге; в гибриде отправка требует подтверждения.
+                    </p>
+                  </div>
+                  <Separator />
+                  <div
+                    role="radiogroup"
+                    aria-label="Режим обработки данных"
+                    className="space-y-1"
+                  >
+                    {PROTECTION_MODES.map((mode) => (
+                      <button
+                        key={mode.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={currentMode.value === mode.value}
+                        onClick={() => {
+                          onProtectionModeChange(mode.value);
+                          setModeOpen(false);
+                        }}
+                        className={cn(
+                          "w-full rounded-md border p-3 text-left transition-colors",
+                          currentMode.value === mode.value
+                            ? "border-primary bg-primary/5"
+                            : "hover:bg-accent border-transparent",
+                        )}
+                      >
+                        <div className="text-pah-base font-medium">
+                          {mode.fullLabel}
+                        </div>
+                        <div className="text-muted-foreground text-pah-sm">
+                          {mode.hint}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+
           {/* Веб-доступ: показываем только если поиск включён на сервере.
               Один запрос — максимум один поиск, поэтому это не «агент», а
               разовое обоснование ответа источниками. */}
           {webSearchAvailable && (
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               <Switch
                 id={webSearchId}
                 checked={webSearch}
@@ -262,7 +375,7 @@ export function ChatInput({
               />
               <Label
                 htmlFor={webSearchId}
-                className="cursor-pointer gap-1"
+                className="cursor-pointer gap-1 whitespace-nowrap"
                 title="Ответ будет обоснован результатами веб-поиска; найденные страницы попадут во вход запроса"
               >
                 <Globe className="size-4" aria-hidden="true" />
@@ -271,12 +384,8 @@ export function ChatInput({
             </div>
           )}
 
-          {/* Локальный режим теперь выбирается переключателем «Режим обработки
-              данных» над полем ввода: дублирующая заглушка удалена, чтобы не
-              путать пользователя двумя элементами с разными смыслами. */}
-
           {remainingBudget?.daily && (
-            <p className="text-muted-foreground ml-auto text-pah-sm">
+            <p className="text-muted-foreground ml-auto shrink-0 text-pah-sm whitespace-nowrap">
               Осталось сегодня: {remainingBudget.daily}{" "}
               {remainingBudget.currency}
             </p>

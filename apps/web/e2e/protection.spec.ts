@@ -24,6 +24,9 @@ test("гибрид: preview с псевдонимами без отправки"
   await expect(page.getByRole("heading", { name: "Провайдеры" })).toBeVisible();
   await page.goto("/chat");
 
+  // Режим выбирается выпадающим меню в строке композера (как глубина
+  // рассуждений): сначала открываем меню, затем выбираем пункт.
+  await page.getByRole("button", { name: /Режим обработки данных/ }).click();
   await page.getByRole("radio", { name: "Защищённый гибрид" }).click();
   await page
     .getByLabel("Текст сообщения")
