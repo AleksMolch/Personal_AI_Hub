@@ -180,6 +180,8 @@ export interface Provider {
   priority: number;
   currency: string;
   key_mask: string;
+  /** Провайдер объявлен локальным (Ollama/LM Studio) — нужен для local_only. */
+  is_local: boolean;
 }
 
 export interface Preset {

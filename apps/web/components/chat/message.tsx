@@ -20,7 +20,7 @@ import { MarkdownRenderer } from "@/components/chat/markdown-renderer";
 import { WebSources, type WebSource } from "@/components/chat/web-sources";
 import { Button } from "@/components/ui/button";
 import { CostBadge, type CostStatus } from "@/components/ui/cost-badge";
-import { PrivacyBadge } from "@/components/ui/privacy-badge";
+import { PrivacyBadge, type PrivacyMode } from "@/components/ui/privacy-badge";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -54,6 +54,10 @@ export interface ChatMessageView {
   sources?: WebSource[];
   /** Предупреждение поиска (например, часть движков не ответила). */
   searchWarning?: string | null;
+  /** Режим обработки ответа: облако, гибрид или локально. */
+  privacyMode?: PrivacyMode;
+  /** В гибриде ответ восстановлен локально из vault. */
+  restoredLocally?: boolean;
 }
 
 interface ChatMessageProps {
@@ -156,9 +160,13 @@ export function ChatMessage({
               стоимости, ни режима обработки. */}
           {!isUser && !message.isStreaming && (
             <div className="flex flex-wrap items-center gap-2 pt-1">
-              {/* На Этапе 1 локального inference нет, поэтому все запросы идут
-                  через внешнего провайдера — режим всегда "cloud". */}
-              <PrivacyBadge mode="cloud" size="sm" />
+              {/* Режим берётся из снимка сообщения (messages.protection):
+                  облако, гибрид или локальный провайдер. */}
+              <PrivacyBadge
+                mode={message.privacyMode ?? "cloud"}
+                restored={message.restoredLocally}
+                size="sm"
+              />
               <CostBadge
                 cost={message.cost ?? undefined}
                 currency={message.currency ?? "$"}

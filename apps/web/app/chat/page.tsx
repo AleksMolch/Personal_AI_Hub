@@ -43,6 +43,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   api,
   Conversation,
   eventSourceUrl,
@@ -66,26 +72,29 @@ const EXAMPLE_PROMPTS = [
 /**
  * Режимы обработки данных (ADR-0007).
  *
- * Выбирает пользователь; административных ограничений нет. `local_only`
- * пока недоступен: локальный runtime появится отдельным срезом, а показывать
- * неработающий выбор нельзя.
+ * Выбирает пользователь; административных ограничений нет. Подписи кнопок
+ * короткие, полное название и объяснение — в подсказке: строка режима должна
+ * занимать одну линию, а не три.
  */
 const PROTECTION_MODES = [
   {
     value: "cloud_controlled",
     label: "Облако",
+    fullLabel: "Облако с предупреждениями",
     hint: "Исходный текст уходит выбранной модели. Перед отправкой показываем, какие данные найдены.",
     disabled: false,
   },
   {
     value: "protected_hybrid",
-    label: "Защищённый гибрид",
+    label: "Гибрид",
+    fullLabel: "Защищённый гибрид",
     hint: "Наружу уходит только очищенный текст с псевдонимами; ответ восстанавливается локально.",
     disabled: false,
   },
   {
     value: "local_only",
-    label: "Только локально",
+    label: "Локально",
+    fullLabel: "Только локально",
     hint: "Данные уходят только провайдеру, помеченному локальным; веб-поиск запрещён. Нужен запущенный Ollama/LM Studio.",
     disabled: false,
   },
@@ -474,6 +483,17 @@ export default function ChatPage() {
           warning?: string | null;
           citations?: WebSource[];
         };
+        // Режим обработки сохранён backend'ом в снимке защиты сообщения.
+        const protection = (m.protection ?? {}) as {
+          mode?: string;
+          restored?: boolean;
+        };
+        const privacyMode: ChatMessageView["privacyMode"] =
+          protection.mode === "protected_hybrid"
+            ? "hybrid"
+            : protection.mode === "local_only"
+              ? "local"
+              : "cloud";
         return {
           id: m.id,
           role: m.role === "user" ? "user" : "assistant",
@@ -488,6 +508,8 @@ export default function ChatPage() {
           reasoningTokens: reasoning,
           sources: search.used ? (search.citations ?? []) : undefined,
           searchWarning: search.warning ?? null,
+          privacyMode,
+          restoredLocally: Boolean(protection.restored),
         };
       }),
     [messages, usageByMessage, summary],
@@ -691,37 +713,38 @@ export default function ChatPage() {
               защитой запрещён. */}
           {protectionAvailable && (
             <div
-              className="flex flex-col gap-1 px-4 pt-3"
+              className="flex flex-wrap items-center gap-2 px-4 pt-3"
               role="radiogroup"
               aria-label="Режим обработки данных"
             >
               <span className="text-muted-foreground text-pah-xs">
                 Режим обработки данных
               </span>
-              <div className="flex flex-wrap gap-2">
+              <TooltipProvider>
                 {PROTECTION_MODES.map((item) => (
-                  <Button
-                    key={item.value}
-                    type="button"
-                    size="sm"
-                    role="radio"
-                    aria-checked={protectionMode === item.value}
-                    variant={
-                      protectionMode === item.value ? "default" : "outline"
-                    }
-                    disabled={item.disabled || protectionBusy}
-                    onClick={() => void changeProtectionMode(item.value)}
-                  >
-                    {item.label}
-                  </Button>
+                  <Tooltip key={item.value}>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        size="sm"
+                        role="radio"
+                        aria-checked={protectionMode === item.value}
+                        aria-label={item.fullLabel}
+                        variant={
+                          protectionMode === item.value ? "default" : "outline"
+                        }
+                        disabled={item.disabled || protectionBusy}
+                        onClick={() => void changeProtectionMode(item.value)}
+                      >
+                        {item.label}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="max-w-xs">{item.hint}</p>
+                    </TooltipContent>
+                  </Tooltip>
                 ))}
-              </div>
-              <p className="text-muted-foreground text-pah-xs">
-                {
-                  PROTECTION_MODES.find((item) => item.value === protectionMode)
-                    ?.hint
-                }
-              </p>
+              </TooltipProvider>
             </div>
           )}
 

@@ -376,9 +376,9 @@ export default function ProvidersPage() {
             >
               Подключённые
             </h2>
-            {/* Все провайдеры на этой странице внешние: запрос уходит в облако и
-                оплачивается ключом пользователя (локального inference нет). */}
-            <PrivacyBadge mode="cloud" size="sm" />
+            {/* Режим обработки различается по провайдерам: локальный (LM Studio,
+                Ollama) не отправляет данные наружу. Бейдж показываем у каждого
+                провайдера, а не один на весь список. */}
           </div>
 
           {loading && (
@@ -428,7 +428,13 @@ export default function ProvidersPage() {
               <CardHeader>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <CardTitle>{p.display_name}</CardTitle>
+                    <CardTitle className="flex flex-wrap items-center gap-2">
+                      {p.display_name}
+                      <PrivacyBadge
+                        mode={p.is_local ? "local" : "cloud"}
+                        size="sm"
+                      />
+                    </CardTitle>
                     {/* Только маска ключа, полученная с backend: полного
                         ключа нет ни в ответе API, ни в разметке. */}
                     <CardDescription className="mt-1">
