@@ -685,12 +685,12 @@ export default function ChatPage() {
             isStreaming={streaming}
             value={draft}
             onValueChange={setDraft}
-            webSearchAvailable={
-              // В локальном режиме поиск — внешний вызов, сервер его отклонит.
-              webSearchAvailable && protectionMode !== "local_only"
-            }
+            // Тумблер остаётся на месте во всех режимах: в локальном он
+            // блокируется, чтобы строка не меняла ширину при переключении.
+            webSearchAvailable={webSearchAvailable}
             webSearch={webSearchEnabled}
             onWebSearchChange={setWebSearchEnabled}
+            webSearchBlocked={protectionMode === "local_only"}
             protectionAvailable={protectionAvailable}
             protectionMode={protectionMode}
             onProtectionModeChange={(mode) => void changeProtectionMode(mode)}

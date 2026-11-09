@@ -15,6 +15,41 @@ test.skip(
   "нужен PROTECTION_MODES_ENABLED=1 и настроенный провайдер",
 );
 
+test("в локальном режиме веб-переключатель остаётся, но неактивен", async ({
+  page,
+}) => {
+  await page.goto("/login");
+  await page.getByLabel("Логин").fill("admin");
+  await page.getByLabel("Пароль").fill("supersecret123");
+  await page.getByRole("button", { name: "Войти" }).click();
+  await expect(page.getByRole("heading", { name: "Провайдеры" })).toBeVisible();
+  await page.goto("/chat");
+  // Ждём загрузки возможностей сервера: и режим, и веб-переключатель
+  // появляются из одного ответа capabilities, иначе count() увидит ноль.
+  await expect(
+    page.getByRole("button", { name: /Режим обработки данных/ }),
+  ).toBeVisible();
+
+  const webSwitch = page.getByRole("switch", { name: "Веб" });
+  // Веб-поиск может быть выключен на сервере: тогда тумблера нет и проверять
+  // нечего. Это не ошибка интерфейса.
+  if ((await webSwitch.count()) === 0) {
+    test.skip(true, "веб-поиск выключен на сервере (WEB_SEARCH_ENABLED=0)");
+  }
+  await expect(webSwitch).toBeEnabled();
+
+  // Локальный режим: тумблер не исчезает (строка не «прыгает»), а блокируется.
+  await page.getByRole("button", { name: /Режим обработки данных/ }).click();
+  await page.getByRole("radio", { name: "Только локально" }).click();
+  await expect(webSwitch).toBeVisible();
+  await expect(webSwitch).toBeDisabled();
+
+  // Возврат в гибрид снова разрешает поиск на том же месте.
+  await page.getByRole("button", { name: /Режим обработки данных/ }).click();
+  await page.getByRole("radio", { name: "Защищённый гибрид" }).click();
+  await expect(webSwitch).toBeEnabled();
+});
+
 test("гибрид: preview с псевдонимами без отправки", async ({ page }) => {
   await page.goto("/login");
   await page.getByLabel("Логин").fill("admin");

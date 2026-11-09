@@ -100,6 +100,8 @@ interface ChatInputProps {
   webSearch?: boolean;
   /** Изменение режима веб-поиска. */
   onWebSearchChange?: (enabled: boolean) => void;
+  /** Веб-поиск запрещён текущим режимом: тумблер остаётся, но неактивен. */
+  webSearchBlocked?: boolean;
   /** Доступны ли защищённые режимы (сервер подтвердил готовность). */
   protectionAvailable?: boolean;
   /** Текущий режим обработки данных диалога. */
@@ -154,6 +156,7 @@ export function ChatInput({
   webSearchAvailable = false,
   webSearch = false,
   onWebSearchChange,
+  webSearchBlocked = false,
   protectionAvailable = false,
   protectionMode = "cloud_controlled",
   onProtectionModeChange,
@@ -370,13 +373,23 @@ export function ChatInput({
             <div className="flex shrink-0 items-center gap-2">
               <Switch
                 id={webSearchId}
-                checked={webSearch}
+                checked={webSearchBlocked ? false : webSearch}
                 onCheckedChange={onWebSearchChange}
+                disabled={webSearchBlocked}
               />
               <Label
                 htmlFor={webSearchId}
-                className="cursor-pointer gap-1 whitespace-nowrap"
-                title="Ответ будет обоснован результатами веб-поиска; найденные страницы попадут во вход запроса"
+                className={cn(
+                  "gap-1 whitespace-nowrap",
+                  webSearchBlocked
+                    ? "text-muted-foreground cursor-not-allowed"
+                    : "cursor-pointer",
+                )}
+                title={
+                  webSearchBlocked
+                    ? "В локальном режиме веб-поиск запрещён: это внешний запрос"
+                    : "Ответ будет обоснован результатами веб-поиска; найденные страницы попадут во вход запроса"
+                }
               >
                 <Globe className="size-4" aria-hidden="true" />
                 Веб
