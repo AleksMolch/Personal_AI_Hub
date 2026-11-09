@@ -15,7 +15,7 @@
 // намеренно — backend их пока не реализует, а показывать неработающий тумблер
 // запрещено правилами проекта.
 import { useId, useState } from "react";
-import { Brain, Globe, Paperclip, Send, ShieldOff, Square } from "lucide-react";
+import { Brain, Globe, Paperclip, Send, Square } from "lucide-react";
 
 import { ModelPricingWarning } from "@/components/ui/model-pricing-warning";
 import { Badge } from "@/components/ui/badge";
@@ -127,9 +127,7 @@ export function ChatInput({
   const [reasoningDepth, setReasoningDepth] =
     useState<ReasoningDepth>("medium");
   const textareaId = useId();
-  const localModeId = useId();
   const webSearchId = useId();
-
   const selected = models.find((m) => m.id === selectedModel);
   // Без цены backend блокирует платный вызов, поэтому предупреждение не
   // скрывается пользователем: это не подсказка, а объяснение отказа.
@@ -273,20 +271,9 @@ export function ChatInput({
             </div>
           )}
 
-          {/* Заглушка локального режима: честно сообщаем, что он появится на
-              Этапе 2, вместо неработающего переключателя. */}
-          <div className="flex items-center gap-2">
-            <Switch id={localModeId} disabled checked={false} />
-            <Label
-              htmlFor={localModeId}
-              className="text-muted-foreground cursor-not-allowed gap-1"
-              title="Локальный inference появится на Этапе 2: сейчас все запросы идут во внешний API-провайдер"
-            >
-              <ShieldOff className="size-4" aria-hidden="true" />
-              Локально
-              <span className="text-pah-xs">(скоро)</span>
-            </Label>
-          </div>
+          {/* Локальный режим теперь выбирается переключателем «Режим обработки
+              данных» над полем ввода: дублирующая заглушка удалена, чтобы не
+              путать пользователя двумя элементами с разными смыслами. */}
 
           {remainingBudget?.daily && (
             <p className="text-muted-foreground ml-auto text-pah-sm">
