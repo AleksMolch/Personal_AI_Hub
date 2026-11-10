@@ -13,7 +13,8 @@
 // Принципиальное ограничение: элементы управления отражают ТОЛЬКО реально
 // поддержанные возможности. Режим обработки данных показывается лишь когда
 // сервер подтвердил готовность (capabilities.protection.enabled).
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import { Brain, Globe, Paperclip, Send, Shield, Square } from "lucide-react";
 
 import { ModelPricingWarning } from "@/components/ui/model-pricing-warning";
@@ -165,6 +166,17 @@ export function ChatInput({
   const [reasoningDepth, setReasoningDepth] =
     useState<ReasoningDepth>("medium");
   const [modeOpen, setModeOpen] = useState(false);
+  // Высота поля ввода: null — значение по умолчанию (min-h-20). Тянется за
+  // верхнюю грань панели, чтобы увеличить область промпта.
+  const [composerHeight, setComposerHeight] = useState<number | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerResizeRef = useRef<{
+    startY: number;
+    startValue: number;
+    max: number;
+  } | null>(null);
+  const COMPOSER_MIN = 80;
+  const COMPOSER_MAX = 600;
   const textareaId = useId();
   const webSearchId = useId();
   const selected = models.find((m) => m.id === selectedModel);
@@ -201,8 +213,102 @@ export function ChatInput({
 
   const currentLevel = REASONING_LEVELS.find((l) => l.value === reasoningDepth);
 
+  /** Максимальная высота поля ввода: не больше 60% окна. */
+  function maxComposerHeight(): number {
+    return Math.min(COMPOSER_MAX, Math.floor(window.innerHeight * 0.6));
+  }
+
+  /** Начинает перетаскивание верхней грани панели ввода. */
+  function startComposerResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const textarea = textareaRef.current;
+    composerResizeRef.current = {
+      startY: event.clientY,
+      startValue:
+        composerHeight ?? textarea?.getBoundingClientRect().height ?? 80,
+      max: maxComposerHeight(),
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "ns-resize";
+  }
+
+  /** Обновляет высоту во время перетаскивания: вверх — больше, вниз — меньше. */
+  function moveComposerResize(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = composerResizeRef.current;
+    if (!drag) return;
+    setComposerHeight(
+      Math.min(
+        Math.max(drag.startValue + (drag.startY - event.clientY), COMPOSER_MIN),
+        drag.max,
+      ),
+    );
+  }
+
+  /** Завершает перетаскивание и убирает временные стили. */
+  function endComposerResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!composerResizeRef.current) return;
+    composerResizeRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+  }
+
+  /** Двойной клик возвращает высоту по умолчанию. */
+  function resetComposerResize() {
+    setComposerHeight(null);
+  }
+
+  /** Клавиатурная регулировка: стрелки двигают грань на 16 px. */
+  function nudgeComposerResize(delta: number) {
+    const textarea = textareaRef.current;
+    const base =
+      composerHeight ??
+      textarea?.getBoundingClientRect().height ??
+      COMPOSER_MIN;
+    setComposerHeight(
+      Math.min(Math.max(base + delta, COMPOSER_MIN), maxComposerHeight()),
+    );
+  }
+
   return (
-    <div className="bg-background/95 supports-[backdrop-filter]:bg-background/80 m-2 mt-0 rounded-xl border shadow-[0_10px_28px_-10px_rgba(15,23,42,0.35)] backdrop-blur lg:m-3 lg:mt-0 lg:rounded-2xl dark:shadow-[0_10px_28px_-10px_rgba(0,0,0,0.75)]">
+    <div className="bg-background/95 supports-[backdrop-filter]:bg-background/80 relative m-2 mt-0 rounded-xl border shadow-[0_10px_28px_-10px_rgba(15,23,42,0.35)] backdrop-blur lg:m-3 lg:mt-0 lg:rounded-2xl dark:shadow-[0_10px_28px_-10px_rgba(0,0,0,0.75)]">
+      {/* Ручка высоты панели ввода: тянем верхнюю грань. На мобильных скрыта,
+          чтобы не мешать прокрутке переписки. */}
+      <div
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Изменить высоту панели ввода"
+        aria-valuenow={composerHeight ?? COMPOSER_MIN}
+        aria-valuemin={COMPOSER_MIN}
+        aria-valuemax={COMPOSER_MAX}
+        aria-valuetext={
+          composerHeight
+            ? `${Math.round(composerHeight)} пикселей`
+            : "высота по умолчанию"
+        }
+        tabIndex={0}
+        title="Потяните вверх, чтобы увеличить поле промпта. Двойной клик — сбросить"
+        className="group absolute inset-x-0 top-0 z-20 hidden h-3 cursor-ns-resize touch-none items-start justify-center pt-1 lg:flex"
+        onPointerDown={startComposerResize}
+        onPointerMove={moveComposerResize}
+        onPointerUp={endComposerResize}
+        onPointerCancel={endComposerResize}
+        onDoubleClick={resetComposerResize}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            nudgeComposerResize(16);
+          }
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            nudgeComposerResize(-16);
+          }
+        }}
+      >
+        <span className="bg-border group-hover:bg-primary/60 h-1 w-12 rounded-full transition-colors" />
+      </div>
       <div className="w-full space-y-3 p-3 lg:p-4">
         {showPricingWarning && selected && (
           <ModelPricingWarning
@@ -413,6 +519,7 @@ export function ChatInput({
             Текст сообщения
           </Label>
           <Textarea
+            ref={textareaRef}
             id={textareaId}
             value={value}
             onChange={(e) => onValueChange(e.target.value)}
@@ -422,7 +529,12 @@ export function ChatInput({
                 ? "Сначала добавьте провайдера и синхронизируйте модели"
                 : "Напишите сообщение… (Enter — отправить, Shift+Enter — новая строка)"
             }
-            className="min-h-20 pr-24"
+            className="min-h-20 resize-none pr-24"
+            style={
+              composerHeight !== null
+                ? { height: `${composerHeight}px` }
+                : undefined
+            }
             disabled={isStreaming || noModels}
           />
           <div className="absolute right-2 bottom-2 flex gap-1">

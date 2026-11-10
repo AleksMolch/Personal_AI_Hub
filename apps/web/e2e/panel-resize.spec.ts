@@ -1,7 +1,12 @@
 import { test, expect } from "@playwright/test";
 
-/** Временная проверка ресайза панелей чата (удаляется после). */
-test("ресайз высоты и ширины", async ({ page }) => {
+/**
+ * E2E ресайза панелей чата: высота панели ввода и ширина списка диалогов.
+ *
+ * Проверяем именно орган управления: тянем верхнюю грань композера (поле
+ * промпта растёт) и правую грань сайдбара; на мобильном ручки скрыты.
+ */
+test("ресайз панели ввода и сайдбара", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/login");
   await page.getByLabel("Логин").fill("admin");
@@ -11,35 +16,23 @@ test("ресайз высоты и ширины", async ({ page }) => {
   await page.goto("/chat");
   await expect(page.getByRole("heading", { name: "Чат" })).toBeAttached();
 
-  const section = page.locator('section[aria-label="Область переписки"]');
+  const textarea = page.getByLabel("Текст сообщения");
   const aside = page.locator('aside[aria-label="Диалоги"]');
-  const before = (await section.boundingBox())!;
+  const inputBefore = (await textarea.boundingBox())!;
   const widthBefore = (await aside.boundingBox())!.width;
 
-  // Высота: тянем верхнюю грань вниз — панель должна стать ниже, низ на месте.
-  const heightHandle = page.getByRole("button", {
-    name: "Изменить высоту панели чата",
+  // Высота панели ввода: тянем верхнюю грань вверх — поле промпта растёт.
+  const inputHandle = page.getByRole("separator", {
+    name: "Изменить высоту панели ввода",
   });
-  const hb = (await heightHandle.boundingBox())!;
+  const hb = (await inputHandle.boundingBox())!;
   await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
   await page.mouse.down();
-  await page.mouse.move(hb.x + hb.width / 2, hb.y + 160, { steps: 12 });
+  await page.mouse.move(hb.x + hb.width / 2, hb.y - 120, { steps: 12 });
   await page.mouse.up();
 
-  const after = (await section.boundingBox())!;
-  console.log(
-    "HEIGHT",
-    JSON.stringify({
-      before: Math.round(before.height),
-      after: Math.round(after.height),
-      bottomBefore: Math.round(before.y + before.height),
-      bottomAfter: Math.round(after.y + after.height),
-    }),
-  );
-  expect(after.height).toBeLessThan(before.height - 80);
-  expect(
-    Math.abs(after.y + after.height - (before.y + before.height)),
-  ).toBeLessThan(3);
+  const inputAfter = (await textarea.boundingBox())!;
+  expect(inputAfter.height).toBeGreaterThan(inputBefore.height + 80);
 
   // Ширина: тянем правую грань сайдбара вправо.
   const widthHandle = page.getByRole("separator", {
@@ -52,22 +45,15 @@ test("ресайз высоты и ширины", async ({ page }) => {
   await page.mouse.up();
 
   const widthAfter = (await aside.boundingBox())!.width;
-  console.log(
-    "WIDTH",
-    JSON.stringify({
-      before: Math.round(widthBefore),
-      after: Math.round(widthAfter),
-    }),
-  );
   expect(widthAfter).toBeGreaterThan(widthBefore + 80);
 
-  // Двойной клик по ручке высоты возвращает панель на всю высоту.
-  await heightHandle.dblclick();
-  const restored = (await section.boundingBox())!;
-  expect(restored.height).toBeGreaterThan(after.height + 80);
+  // Двойной клик по ручке высоты возвращает поле к размеру по умолчанию.
+  await inputHandle.dblclick();
+  const inputRestored = (await textarea.boundingBox())!;
+  expect(inputRestored.height).toBeLessThan(inputAfter.height - 80);
 
-  // На мобильном ручки скрыты.
+  // На мобильном ручки скрыты: там панель занимает всю ширину.
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(heightHandle).toBeHidden();
+  await expect(inputHandle).toBeHidden();
   await expect(widthHandle).toBeHidden();
 });

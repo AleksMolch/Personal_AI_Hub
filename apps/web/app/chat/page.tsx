@@ -507,80 +507,50 @@ export default function ChatPage() {
 
   const priceMissing = Boolean(error && error.toLowerCase().includes("цена"));
 
-  // Ресайз панелей: ширина сайдбара и высота области чата. Значения живут в
-  // состоянии и не сохраняются: при смене окна они не должны «залипать».
+  // Ширина сайдбара: живёт в состоянии и не сохраняется, чтобы при смене окна
+  // панель не «залипала» в неудобном размере.
   const [sidebarWidth, setSidebarWidth] = useState(260);
-  const [panelHeight, setPanelHeight] = useState<number | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
   const resizeRef = useRef<{
-    mode: "width" | "height";
     startX: number;
-    startY: number;
     startValue: number;
     max: number;
   } | null>(null);
 
   const SIDEBAR_MIN = 200;
   const SIDEBAR_MAX = 420;
-  const PANEL_MIN = 320;
 
   /** Ограничивает значение диапазоном. */
   function clamp(value: number, min: number, max: number): number {
     return Math.min(Math.max(value, min), max);
   }
 
-  /** Максимальная высота панели: доступное место до нижнего края окна. */
-  function maxPanelHeight(): number {
-    const grid = gridRef.current;
-    if (!grid) return 800;
-    const rect = grid.getBoundingClientRect();
-    return Math.max(PANEL_MIN, Math.floor(window.innerHeight - rect.top - 16));
-  }
-
-  /** Начинает перетаскивание ручки (ширина или высота). */
-  function startResize(
-    mode: "width" | "height",
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) {
-    const grid = gridRef.current;
-    if (!grid || event.button !== 0) return;
+  /** Начинает перетаскивание правой грани сайдбара. */
+  function startResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
     event.preventDefault();
-    const rect = grid.getBoundingClientRect();
     resizeRef.current = {
-      mode,
       startX: event.clientX,
-      startY: event.clientY,
-      startValue: mode === "width" ? sidebarWidth : Math.round(rect.height),
-      max: mode === "width" ? SIDEBAR_MAX : maxPanelHeight(),
+      startValue: sidebarWidth,
+      max: SIDEBAR_MAX,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
     // Пока тянем — не выделяем текст и держим курсор нужной формы.
     document.body.style.userSelect = "none";
-    document.body.style.cursor = mode === "width" ? "col-resize" : "ns-resize";
+    document.body.style.cursor = "col-resize";
   }
 
-  /** Обновляет размер во время перетаскивания. */
+  /** Обновляет ширину во время перетаскивания. */
   function moveResize(event: ReactPointerEvent<HTMLDivElement>) {
     const drag = resizeRef.current;
     if (!drag) return;
-    if (drag.mode === "width") {
-      setSidebarWidth(
-        clamp(
-          drag.startValue + (event.clientX - drag.startX),
-          SIDEBAR_MIN,
-          drag.max,
-        ),
-      );
-    } else {
-      // Тянем верхнюю грань: движение вверх увеличивает высоту.
-      setPanelHeight(
-        clamp(
-          drag.startValue + (drag.startY - event.clientY),
-          PANEL_MIN,
-          drag.max,
-        ),
-      );
-    }
+    setSidebarWidth(
+      clamp(
+        drag.startValue + (event.clientX - drag.startX),
+        SIDEBAR_MIN,
+        drag.max,
+      ),
+    );
   }
 
   /** Завершает перетаскивание и убирает временные стили. */
@@ -592,21 +562,14 @@ export default function ChatPage() {
     document.body.style.cursor = "";
   }
 
-  /** Двойной клик по ручке возвращает размер по умолчанию. */
-  function resetResize(mode: "width" | "height") {
-    if (mode === "width") setSidebarWidth(260);
-    else setPanelHeight(null);
+  /** Двойной клик по ручке возвращает ширину по умолчанию. */
+  function resetResize() {
+    setSidebarWidth(260);
   }
 
   /** Клавиатурная регулировка: стрелки двигают грань на 16 px. */
-  function nudgeResize(mode: "width" | "height", delta: number) {
-    if (mode === "width") {
-      setSidebarWidth((w) => clamp(w + delta, SIDEBAR_MIN, SIDEBAR_MAX));
-      return;
-    }
-    const rect = gridRef.current?.getBoundingClientRect();
-    const base = panelHeight ?? (rect ? rect.height : 600);
-    setPanelHeight(clamp(base + delta, PANEL_MIN, maxPanelHeight()));
+  function nudgeResize(delta: number) {
+    setSidebarWidth((w) => clamp(w + delta, SIDEBAR_MIN, SIDEBAR_MAX));
   }
 
   return (
@@ -635,19 +598,7 @@ export default function ChatPage() {
       <div
         ref={gridRef}
         className="grid min-h-0 flex-1 gap-3 p-3 lg:grid-cols-[var(--sidebar-width,260px)_1fr] lg:gap-4 lg:p-5"
-        style={
-          {
-            "--sidebar-width": `${sidebarWidth}px`,
-            ...(panelHeight !== null
-              ? {
-                  height: `${panelHeight}px`,
-                  maxHeight: "calc(100dvh - 96px)",
-                  flex: "none",
-                  marginTop: "auto",
-                }
-              : {}),
-          } as CSSProperties
-        }
+        style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
       >
         <aside
           className={cn(
@@ -725,19 +676,19 @@ export default function ChatPage() {
             tabIndex={0}
             title="Потяните, чтобы изменить ширину. Двойной клик — сбросить"
             className="group absolute inset-y-0 -right-2 z-10 hidden w-4 cursor-col-resize touch-none items-center justify-center lg:flex"
-            onPointerDown={(event) => startResize("width", event)}
+            onPointerDown={startResize}
             onPointerMove={moveResize}
             onPointerUp={endResize}
             onPointerCancel={endResize}
-            onDoubleClick={() => resetResize("width")}
+            onDoubleClick={resetResize}
             onKeyDown={(event) => {
               if (event.key === "ArrowLeft") {
                 event.preventDefault();
-                nudgeResize("width", -16);
+                nudgeResize(-16);
               }
               if (event.key === "ArrowRight") {
                 event.preventDefault();
-                nudgeResize("width", 16);
+                nudgeResize(16);
               }
             }}
           >
@@ -747,35 +698,9 @@ export default function ChatPage() {
 
         <section
           role="main"
-          className="bg-card relative flex min-h-0 flex-col overflow-hidden rounded-2xl border shadow-[0_12px_32px_-12px_rgba(15,23,42,0.45)] dark:shadow-[0_12px_32px_-12px_rgba(0,0,0,0.8)]"
+          className="bg-card flex min-h-0 flex-col overflow-hidden rounded-2xl border shadow-[0_12px_32px_-12px_rgba(15,23,42,0.45)] dark:shadow-[0_12px_32px_-12px_rgba(0,0,0,0.8)]"
           aria-label="Область переписки"
         >
-          {/* Ручка высоты: верхняя грань панели. Тянем вверх — панель
-              увеличивается, вниз — уменьшается; низ остаётся на месте. */}
-          <div
-            role="button"
-            aria-label="Изменить высоту панели чата"
-            tabIndex={0}
-            title="Потяните вверх или вниз. Двойной клик — на всю высоту"
-            className="group absolute inset-x-0 top-0 z-20 hidden h-3 cursor-ns-resize touch-none items-start justify-center pt-1 lg:flex"
-            onPointerDown={(event) => startResize("height", event)}
-            onPointerMove={moveResize}
-            onPointerUp={endResize}
-            onPointerCancel={endResize}
-            onDoubleClick={() => resetResize("height")}
-            onKeyDown={(event) => {
-              if (event.key === "ArrowUp") {
-                event.preventDefault();
-                nudgeResize("height", 16);
-              }
-              if (event.key === "ArrowDown") {
-                event.preventDefault();
-                nudgeResize("height", -16);
-              }
-            }}
-          >
-            <span className="bg-border group-hover:bg-primary/60 h-1 w-12 rounded-full transition-colors" />
-          </div>
           {/* Заголовок скрыт визуально: в шапке он сдвигал навигацию, и меню
               «прыгало» относительно других разделов. Для скринридеров и
               заголовочной структуры h1 остаётся внутри landmark-области. */}
