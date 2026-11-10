@@ -15,9 +15,9 @@ import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 
-/** Разделы приложения в порядке отображения. */
+/** Разделы приложения в порядке отображения: «Обзор» — в конце, «Профиль»
+ *  здесь не дублируется, потому что кнопка профиля стоит справа в шапке. */
 export const NAV_ITEMS: { href: string; label: string }[] = [
-  { href: "/", label: "Обзор" },
   { href: "/chat", label: "Чат" },
   { href: "/providers", label: "Провайдеры" },
   { href: "/models", label: "Модели и цены" },
@@ -25,7 +25,7 @@ export const NAV_ITEMS: { href: string; label: string }[] = [
   { href: "/jobs", label: "Задачи" },
   { href: "/knowledge", label: "Базы знаний" },
   { href: "/tables", label: "Таблицы" },
-  { href: "/profile", label: "Профиль" },
+  { href: "/", label: "Обзор" },
 ];
 
 interface NavigationLinksProps {
