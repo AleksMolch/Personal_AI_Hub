@@ -28,6 +28,7 @@ import { AppHeader } from "@/components/app-header";
 import { MessageList } from "@/components/chat/message-list";
 import type { ChatMessageView } from "@/components/chat/message";
 import type { WebSource } from "@/components/chat/web-sources";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -506,6 +507,108 @@ export default function ChatPage() {
 
   const priceMissing = Boolean(error && error.toLowerCase().includes("цена"));
 
+  // Ресайз панелей: ширина сайдбара и высота области чата. Значения живут в
+  // состоянии и не сохраняются: при смене окна они не должны «залипать».
+  const [sidebarWidth, setSidebarWidth] = useState(260);
+  const [panelHeight, setPanelHeight] = useState<number | null>(null);
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const resizeRef = useRef<{
+    mode: "width" | "height";
+    startX: number;
+    startY: number;
+    startValue: number;
+    max: number;
+  } | null>(null);
+
+  const SIDEBAR_MIN = 200;
+  const SIDEBAR_MAX = 420;
+  const PANEL_MIN = 320;
+
+  /** Ограничивает значение диапазоном. */
+  function clamp(value: number, min: number, max: number): number {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  /** Максимальная высота панели: доступное место до нижнего края окна. */
+  function maxPanelHeight(): number {
+    const grid = gridRef.current;
+    if (!grid) return 800;
+    const rect = grid.getBoundingClientRect();
+    return Math.max(PANEL_MIN, Math.floor(window.innerHeight - rect.top - 16));
+  }
+
+  /** Начинает перетаскивание ручки (ширина или высота). */
+  function startResize(
+    mode: "width" | "height",
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) {
+    const grid = gridRef.current;
+    if (!grid || event.button !== 0) return;
+    event.preventDefault();
+    const rect = grid.getBoundingClientRect();
+    resizeRef.current = {
+      mode,
+      startX: event.clientX,
+      startY: event.clientY,
+      startValue: mode === "width" ? sidebarWidth : Math.round(rect.height),
+      max: mode === "width" ? SIDEBAR_MAX : maxPanelHeight(),
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    // Пока тянем — не выделяем текст и держим курсор нужной формы.
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = mode === "width" ? "col-resize" : "ns-resize";
+  }
+
+  /** Обновляет размер во время перетаскивания. */
+  function moveResize(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = resizeRef.current;
+    if (!drag) return;
+    if (drag.mode === "width") {
+      setSidebarWidth(
+        clamp(
+          drag.startValue + (event.clientX - drag.startX),
+          SIDEBAR_MIN,
+          drag.max,
+        ),
+      );
+    } else {
+      // Тянем верхнюю грань: движение вверх увеличивает высоту.
+      setPanelHeight(
+        clamp(
+          drag.startValue + (drag.startY - event.clientY),
+          PANEL_MIN,
+          drag.max,
+        ),
+      );
+    }
+  }
+
+  /** Завершает перетаскивание и убирает временные стили. */
+  function endResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!resizeRef.current) return;
+    resizeRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+  }
+
+  /** Двойной клик по ручке возвращает размер по умолчанию. */
+  function resetResize(mode: "width" | "height") {
+    if (mode === "width") setSidebarWidth(260);
+    else setPanelHeight(null);
+  }
+
+  /** Клавиатурная регулировка: стрелки двигают грань на 16 px. */
+  function nudgeResize(mode: "width" | "height", delta: number) {
+    if (mode === "width") {
+      setSidebarWidth((w) => clamp(w + delta, SIDEBAR_MIN, SIDEBAR_MAX));
+      return;
+    }
+    const rect = gridRef.current?.getBoundingClientRect();
+    const base = panelHeight ?? (rect ? rect.height : 600);
+    setPanelHeight(clamp(base + delta, PANEL_MIN, maxPanelHeight()));
+  }
+
   return (
     <div className="bg-muted flex h-dvh flex-col">
       <AppHeader
@@ -525,74 +628,154 @@ export default function ChatPage() {
 
       {/* Панели — «плавающие» карточки с закруглением и мягкой тенью:
           визуально отделяют диалоги и переписку от фона, как в DeepSeek
-          Harness. На мобильных отступы и радиус меньше, на десктопе больше. */}
-      <div className="grid min-h-0 flex-1 gap-3 p-3 lg:grid-cols-[260px_1fr] lg:gap-4 lg:p-5">
+          Harness. На мобильных отступы и радиус меньше, на десктопе больше.
+          Ширина сайдбара задаётся переменной и тянется за правую грань;
+          высота области чата при перетаскивании верхней грани — inline-стилем,
+          при этом низ панели остаётся прижат к низу окна. */}
+      <div
+        ref={gridRef}
+        className="grid min-h-0 flex-1 gap-3 p-3 lg:grid-cols-[var(--sidebar-width,260px)_1fr] lg:gap-4 lg:p-5"
+        style={
+          {
+            "--sidebar-width": `${sidebarWidth}px`,
+            ...(panelHeight !== null
+              ? {
+                  height: `${panelHeight}px`,
+                  maxHeight: "calc(100dvh - 96px)",
+                  flex: "none",
+                  marginTop: "auto",
+                }
+              : {}),
+          } as CSSProperties
+        }
+      >
         <aside
           className={cn(
-            "bg-card min-h-0 flex-col gap-2 overflow-y-auto rounded-2xl border p-3 shadow-[0_12px_32px_-12px_rgba(15,23,42,0.45)] lg:flex dark:shadow-[0_12px_32px_-12px_rgba(0,0,0,0.8)]",
-            sidebarOpen ? "flex" : "hidden",
+            "bg-card relative min-h-0 rounded-2xl border shadow-[0_12px_32px_-12px_rgba(15,23,42,0.45)] dark:shadow-[0_12px_32px_-12px_rgba(0,0,0,0.8)]",
+            sidebarOpen ? "block" : "hidden",
+            "lg:block",
           )}
           aria-label="Диалоги"
         >
-          <Button onClick={newConversation} className="w-full">
-            <Plus />
-            Новый диалог
-          </Button>
+          <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-3">
+            <Button onClick={newConversation} className="w-full">
+              <Plus />
+              Новый диалог
+            </Button>
 
-          <div className="relative">
-            <Search
-              className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2"
-              aria-hidden="true"
-            />
-            <Input
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="Поиск по диалогам"
-              aria-label="Поиск по диалогам"
-              className="pl-7"
-            />
+            <div className="relative">
+              <Search
+                className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2"
+                aria-hidden="true"
+              />
+              <Input
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Поиск по диалогам"
+                aria-label="Поиск по диалогам"
+                className="pl-7"
+              />
+            </div>
+
+            {loading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-8 w-full" />
+              </div>
+            ) : filteredConversations.length === 0 ? (
+              <p className="text-muted-foreground px-1 text-pah-sm">
+                {filter
+                  ? "Ничего не найдено."
+                  : "Диалогов пока нет — создайте первый."}
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-0.5">
+                {filteredConversations.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => openConversation(c.id)}
+                      aria-current={c.id === currentId ? "true" : undefined}
+                      className={cn(
+                        "w-full truncate rounded-md px-2 py-1.5 text-left text-pah-sm transition-colors",
+                        c.id === currentId
+                          ? "bg-secondary text-secondary-foreground font-medium"
+                          : "hover:bg-accent hover:text-accent-foreground",
+                      )}
+                    >
+                      {c.title || "Без названия"}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
-          {loading ? (
-            <div className="space-y-2">
-              <Skeleton className="h-8 w-full" />
-              <Skeleton className="h-8 w-full" />
-              <Skeleton className="h-8 w-full" />
-            </div>
-          ) : filteredConversations.length === 0 ? (
-            <p className="text-muted-foreground px-1 text-pah-sm">
-              {filter
-                ? "Ничего не найдено."
-                : "Диалогов пока нет — создайте первый."}
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-0.5">
-              {filteredConversations.map((c) => (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    onClick={() => openConversation(c.id)}
-                    aria-current={c.id === currentId ? "true" : undefined}
-                    className={cn(
-                      "w-full truncate rounded-md px-2 py-1.5 text-left text-pah-sm transition-colors",
-                      c.id === currentId
-                        ? "bg-secondary text-secondary-foreground font-medium"
-                        : "hover:bg-accent hover:text-accent-foreground",
-                    )}
-                  >
-                    {c.title || "Без названия"}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          {/* Ручка ширины: тонкая полоса в зазоре между панелями. На
+              мобильных скрыта — там сайдбар открывается кнопкой в шапке. */}
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Изменить ширину панели диалогов"
+            aria-valuenow={sidebarWidth}
+            aria-valuemin={SIDEBAR_MIN}
+            aria-valuemax={SIDEBAR_MAX}
+            aria-valuetext={`${sidebarWidth} пикселей`}
+            tabIndex={0}
+            title="Потяните, чтобы изменить ширину. Двойной клик — сбросить"
+            className="group absolute inset-y-0 -right-2 z-10 hidden w-4 cursor-col-resize touch-none items-center justify-center lg:flex"
+            onPointerDown={(event) => startResize("width", event)}
+            onPointerMove={moveResize}
+            onPointerUp={endResize}
+            onPointerCancel={endResize}
+            onDoubleClick={() => resetResize("width")}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowLeft") {
+                event.preventDefault();
+                nudgeResize("width", -16);
+              }
+              if (event.key === "ArrowRight") {
+                event.preventDefault();
+                nudgeResize("width", 16);
+              }
+            }}
+          >
+            <span className="bg-border group-hover:bg-primary/60 h-10 w-1 rounded-full transition-colors" />
+          </div>
         </aside>
 
         <section
           role="main"
-          className="bg-card flex min-h-0 flex-col overflow-hidden rounded-2xl border shadow-[0_12px_32px_-12px_rgba(15,23,42,0.45)] dark:shadow-[0_12px_32px_-12px_rgba(0,0,0,0.8)]"
+          className="bg-card relative flex min-h-0 flex-col overflow-hidden rounded-2xl border shadow-[0_12px_32px_-12px_rgba(15,23,42,0.45)] dark:shadow-[0_12px_32px_-12px_rgba(0,0,0,0.8)]"
           aria-label="Область переписки"
         >
+          {/* Ручка высоты: верхняя грань панели. Тянем вверх — панель
+              увеличивается, вниз — уменьшается; низ остаётся на месте. */}
+          <div
+            role="button"
+            aria-label="Изменить высоту панели чата"
+            tabIndex={0}
+            title="Потяните вверх или вниз. Двойной клик — на всю высоту"
+            className="group absolute inset-x-0 top-0 z-20 hidden h-3 cursor-ns-resize touch-none items-start justify-center pt-1 lg:flex"
+            onPointerDown={(event) => startResize("height", event)}
+            onPointerMove={moveResize}
+            onPointerUp={endResize}
+            onPointerCancel={endResize}
+            onDoubleClick={() => resetResize("height")}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowUp") {
+                event.preventDefault();
+                nudgeResize("height", 16);
+              }
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                nudgeResize("height", -16);
+              }
+            }}
+          >
+            <span className="bg-border group-hover:bg-primary/60 h-1 w-12 rounded-full transition-colors" />
+          </div>
           {/* Заголовок скрыт визуально: в шапке он сдвигал навигацию, и меню
               «прыгало» относительно других разделов. Для скринридеров и
               заголовочной структуры h1 остаётся внутри landmark-области. */}
