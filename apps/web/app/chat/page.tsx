@@ -509,8 +509,8 @@ export default function ChatPage() {
   const priceMissing = Boolean(error && error.toLowerCase().includes("цена"));
 
   return (
-    <div className="flex h-dvh flex-col">
-      <header className="bg-background/95 supports-[backdrop-filter]:bg-background/60 flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-3 py-2 backdrop-blur">
+    <div className="bg-muted flex h-dvh flex-col">
+      <header className="bg-background/80 supports-[backdrop-filter]:bg-background/60 flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-3 py-2 backdrop-blur">
         <Button
           variant="ghost"
           size="icon-sm"
@@ -539,10 +539,13 @@ export default function ChatPage() {
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 lg:grid-cols-[260px_1fr]">
+      {/* Панели — «плавающие» карточки с закруглением и мягкой тенью:
+          визуально отделяют диалоги и переписку от фона, как в DeepSeek
+          Harness. На мобильных отступы и радиус меньше, на десктопе больше. */}
+      <div className="grid min-h-0 flex-1 gap-3 p-3 lg:grid-cols-[260px_1fr] lg:gap-4 lg:p-5">
         <aside
           className={cn(
-            "min-h-0 flex-col gap-2 overflow-y-auto border-b p-3 lg:flex lg:border-r lg:border-b-0",
+            "bg-card min-h-0 flex-col gap-2 overflow-y-auto rounded-2xl border p-3 shadow-[0_12px_32px_-12px_rgba(15,23,42,0.45)] lg:flex",
             sidebarOpen ? "flex" : "hidden",
           )}
           aria-label="Диалоги"
@@ -603,7 +606,7 @@ export default function ChatPage() {
 
         <section
           role="main"
-          className="flex min-h-0 flex-col"
+          className="bg-card flex min-h-0 flex-col overflow-hidden rounded-2xl border shadow-[0_12px_32px_-12px_rgba(15,23,42,0.45)]"
           aria-label="Область переписки"
         >
           {error && (

@@ -202,8 +202,8 @@ export function ChatInput({
   const currentLevel = REASONING_LEVELS.find((l) => l.value === reasoningDepth);
 
   return (
-    <div className="bg-background/95 supports-[backdrop-filter]:bg-background/75 border-t backdrop-blur">
-      <div className="w-full space-y-3 p-4">
+    <div className="bg-background/95 supports-[backdrop-filter]:bg-background/80 m-2 mt-0 rounded-xl border shadow-[0_10px_28px_-10px_rgba(15,23,42,0.35)] backdrop-blur lg:m-3 lg:mt-0 lg:rounded-2xl">
+      <div className="w-full space-y-3 p-3 lg:p-4">
         {showPricingWarning && selected && (
           <ModelPricingWarning
             modelName={selected.name}
@@ -255,7 +255,7 @@ export function ChatInput({
                   {currentLevel?.label ?? "Средняя"}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-80">
+              <PopoverContent className="w-80 shadow-lg">
                 <div className="space-y-3">
                   <div>
                     <h4 className="text-pah-base font-medium">
@@ -318,7 +318,7 @@ export function ChatInput({
                   {currentMode.label}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-80" align="start">
+              <PopoverContent className="w-80 shadow-lg" align="start">
                 <div className="space-y-3">
                   <div>
                     <h4 className="text-pah-base font-medium">
