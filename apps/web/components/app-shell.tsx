@@ -6,15 +6,9 @@
 // не дублировали разметку и оставались согласованными.
 // Место в архитектуре: клиентский компонент-контейнер; страница передаёт
 // заголовок, описание, действия и содержимое. Данные не загружает.
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-
-import { NavigationLinks } from "@/components/navigation-links";
+import { AppHeader } from "@/components/app-header";
 import { PageHeading } from "@/components/page-heading";
-import { ThemeToggle } from "@/components/theme-toggle";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { setToken } from "@/lib/api";
 
 interface AppShellProps {
   /** Заголовок страницы (h1). Должен совпадать с ожидаемым в E2E-тестах. */
@@ -42,14 +36,6 @@ export function AppShell({
   children,
   fullWidth = false,
 }: AppShellProps) {
-  const router = useRouter();
-
-  /** Сбрасывает токен и возвращает пользователя на страницу входа. */
-  function logout() {
-    setToken(null);
-    router.push("/login");
-  }
-
   return (
     <div className="bg-muted min-h-screen">
       {/* Ссылка «к содержимому»: первая в порядке табуляции, позволяет
@@ -62,21 +48,7 @@ export function AppShell({
         Перейти к содержимому
       </a>
 
-      <header className="bg-background/70 supports-[backdrop-filter]:bg-background/55 border-border/60 sticky top-0 z-40 border-b shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-xl">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2">
-          <span className="text-sm font-semibold whitespace-nowrap">
-            Personal AI Hub
-          </span>
-          <NavigationLinks className="min-w-0 flex-1" />
-          <ThemeToggle />
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/profile">Профиль</Link>
-          </Button>
-          <Button variant="ghost" size="sm" onClick={logout}>
-            Выйти
-          </Button>
-        </div>
-      </header>
+      <AppHeader />
 
       <main
         id="main-content"

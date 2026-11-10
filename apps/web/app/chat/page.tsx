@@ -24,12 +24,10 @@ import {
   type ReasoningDepth,
 } from "@/components/chat/chat-input";
 import { EmptyChatState } from "@/components/chat/empty-chat-state";
+import { AppHeader } from "@/components/app-header";
 import { MessageList } from "@/components/chat/message-list";
 import type { ChatMessageView } from "@/components/chat/message";
 import type { WebSource } from "@/components/chat/web-sources";
-import { NavigationLinks } from "@/components/navigation-links";
-import { PageHeading } from "@/components/page-heading";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,7 +49,6 @@ import {
   Message,
   ModelProfile,
   ProtectionPreview,
-  setToken,
   UsageRecord,
   UsageSummary,
 } from "@/lib/api";
@@ -511,35 +508,20 @@ export default function ChatPage() {
 
   return (
     <div className="bg-muted flex h-dvh flex-col">
-      <header className="bg-background/70 supports-[backdrop-filter]:bg-background/55 border-border/60 flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-3 py-2 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-xl">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="lg:hidden"
-          onClick={() => setSidebarOpen((v) => !v)}
-          aria-label="Показать список диалогов"
-          aria-expanded={sidebarOpen}
-        >
-          <Menu />
-        </Button>
-        <PageHeading level={1} className="text-pah-lg">
-          Чат
-        </PageHeading>
-        <NavigationLinks className="hidden min-w-0 flex-1 md:block" />
-        <div className="ml-auto flex items-center gap-1">
-          <ThemeToggle />
+      <AppHeader
+        leading={
           <Button
             variant="ghost"
-            size="sm"
-            onClick={() => {
-              setToken(null);
-              router.push("/login");
-            }}
+            size="icon-sm"
+            className="lg:hidden"
+            onClick={() => setSidebarOpen((v) => !v)}
+            aria-label="Показать список диалогов"
+            aria-expanded={sidebarOpen}
           >
-            Выйти
+            <Menu />
           </Button>
-        </div>
-      </header>
+        }
+      />
 
       {/* Панели — «плавающие» карточки с закруглением и мягкой тенью:
           визуально отделяют диалоги и переписку от фона, как в DeepSeek
@@ -611,6 +593,10 @@ export default function ChatPage() {
           className="bg-card flex min-h-0 flex-col overflow-hidden rounded-2xl border shadow-[0_12px_32px_-12px_rgba(15,23,42,0.45)] dark:shadow-[0_12px_32px_-12px_rgba(0,0,0,0.8)]"
           aria-label="Область переписки"
         >
+          {/* Заголовок скрыт визуально: в шапке он сдвигал навигацию, и меню
+              «прыгало» относительно других разделов. Для скринридеров и
+              заголовочной структуры h1 остаётся внутри landmark-области. */}
+          <h1 className="sr-only">Чат</h1>
           {error && (
             <div className="px-4 pt-4">
               <Alert variant="destructive">
