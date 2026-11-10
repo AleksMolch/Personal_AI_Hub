@@ -29,6 +29,7 @@ import type { ChatMessageView } from "@/components/chat/message";
 import type { WebSource } from "@/components/chat/web-sources";
 import { NavigationLinks } from "@/components/navigation-links";
 import { PageHeading } from "@/components/page-heading";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -510,7 +511,7 @@ export default function ChatPage() {
 
   return (
     <div className="bg-muted flex h-dvh flex-col">
-      <header className="bg-background/80 supports-[backdrop-filter]:bg-background/60 flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-3 py-2 backdrop-blur">
+      <header className="bg-background/70 supports-[backdrop-filter]:bg-background/55 border-border/60 flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-3 py-2 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-xl">
         <Button
           variant="ghost"
           size="icon-sm"
@@ -525,7 +526,8 @@ export default function ChatPage() {
           Чат
         </PageHeading>
         <NavigationLinks className="hidden min-w-0 flex-1 md:block" />
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-1">
+          <ThemeToggle />
           <Button
             variant="ghost"
             size="sm"
@@ -545,7 +547,7 @@ export default function ChatPage() {
       <div className="grid min-h-0 flex-1 gap-3 p-3 lg:grid-cols-[260px_1fr] lg:gap-4 lg:p-5">
         <aside
           className={cn(
-            "bg-card min-h-0 flex-col gap-2 overflow-y-auto rounded-2xl border p-3 shadow-[0_12px_32px_-12px_rgba(15,23,42,0.45)] lg:flex",
+            "bg-card min-h-0 flex-col gap-2 overflow-y-auto rounded-2xl border p-3 shadow-[0_12px_32px_-12px_rgba(15,23,42,0.45)] lg:flex dark:shadow-[0_12px_32px_-12px_rgba(0,0,0,0.8)]",
             sidebarOpen ? "flex" : "hidden",
           )}
           aria-label="Диалоги"
@@ -606,7 +608,7 @@ export default function ChatPage() {
 
         <section
           role="main"
-          className="bg-card flex min-h-0 flex-col overflow-hidden rounded-2xl border shadow-[0_12px_32px_-12px_rgba(15,23,42,0.45)]"
+          className="bg-card flex min-h-0 flex-col overflow-hidden rounded-2xl border shadow-[0_12px_32px_-12px_rgba(15,23,42,0.45)] dark:shadow-[0_12px_32px_-12px_rgba(0,0,0,0.8)]"
           aria-label="Область переписки"
         >
           {error && (

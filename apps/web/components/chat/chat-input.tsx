@@ -202,7 +202,7 @@ export function ChatInput({
   const currentLevel = REASONING_LEVELS.find((l) => l.value === reasoningDepth);
 
   return (
-    <div className="bg-background/95 supports-[backdrop-filter]:bg-background/80 m-2 mt-0 rounded-xl border shadow-[0_10px_28px_-10px_rgba(15,23,42,0.35)] backdrop-blur lg:m-3 lg:mt-0 lg:rounded-2xl">
+    <div className="bg-background/95 supports-[backdrop-filter]:bg-background/80 m-2 mt-0 rounded-xl border shadow-[0_10px_28px_-10px_rgba(15,23,42,0.35)] backdrop-blur lg:m-3 lg:mt-0 lg:rounded-2xl dark:shadow-[0_10px_28px_-10px_rgba(0,0,0,0.75)]">
       <div className="w-full space-y-3 p-3 lg:p-4">
         {showPricingWarning && selected && (
           <ModelPricingWarning
