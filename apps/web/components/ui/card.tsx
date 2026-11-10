@@ -1,6 +1,9 @@
 // Компоненты карточки (контейнер контента).
 // Назначение: единый контейнер для блоков интерфейса (формы, метрики, списки).
 // Место в архитектуре: примитив UI без состояния и логики.
+//
+// Визуально карточка — «плавающая» панель на мягком фоне: закругление и тень
+// те же, что у панелей чата, поэтому разделы выглядят единообразно.
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -11,7 +14,7 @@ function Card({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="card"
       className={cn(
-        "bg-card text-card-foreground flex flex-col gap-4 rounded-lg border py-4 shadow-xs",
+        "bg-card text-card-foreground flex flex-col gap-4 rounded-2xl border py-4 shadow-[0_10px_30px_-12px_rgba(15,23,42,0.25)] dark:shadow-[0_10px_30px_-12px_rgba(0,0,0,0.7)]",
         className,
       )}
       {...props}

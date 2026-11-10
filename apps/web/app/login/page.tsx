@@ -50,7 +50,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 p-6">
+    <main className="bg-muted mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 p-6">
       <div className="text-center">
         <h1 className="text-pah-3xl font-semibold tracking-tight">
           Personal AI Hub

@@ -51,7 +51,7 @@ export function AppShell({
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="bg-muted min-h-screen">
       {/* Ссылка «к содержимому»: первая в порядке табуляции, позволяет
           пропустить навигацию с клавиатуры (WCAG 2.4.1). Видима только при
           фокусе. */}
