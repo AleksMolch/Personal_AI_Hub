@@ -1,14 +1,12 @@
 // Предупреждение о модели без настроенной цены.
 //
-// Назначение: объяснить, что без PriceSnapshot платный вызов НЕ выполняется.
-// Backend работает в strict-режиме: цена обязательна для чата, embeddings
-// (индексация и RAG-запрос) и RAG-синтеза, иначе возвращается ошибка
-// PRICE_REQUIRED / 400. Поэтому предупреждение не «мягкое»: оно сообщает о
-// блокировке, а не о том, что «запрос просто не будет учтён».
+// Назначение: честно объяснить последствия, но НЕ блокировать работу. Цена
+// необязательна (ADR-0008): без неё генерация разрешена, стоимость пишется как
+// `unknown`, а денежный лимит не резервируется и не гарантируется.
 //
 // Место в архитектуре: представление состояния конфигурации; используется в
 // чате при выборе модели и на странице моделей.
-import { TriangleAlert } from "lucide-react";
+import { Info } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -24,10 +22,10 @@ interface ModelPricingWarningProps {
 }
 
 /**
- * Встроенное предупреждение «цена не настроена».
+ * Информационное предупреждение «цена не настроена».
  *
  * @param props Имя модели и обработчик перехода к настройке цены.
- * @returns Блок Alert с объяснением блокировки и кнопкой настройки.
+ * @returns Блок Alert с объяснением последствий и кнопкой настройки.
  */
 export function ModelPricingWarning({
   modelName,
@@ -35,26 +33,26 @@ export function ModelPricingWarning({
   className,
 }: ModelPricingWarningProps) {
   return (
-    <Alert variant="warning" className={cn("border-warning/50", className)}>
-      <TriangleAlert />
-      <AlertTitle>Цена не настроена — запросы заблокированы</AlertTitle>
+    <Alert className={cn("border-warning/50", className)}>
+      <Info />
+      <AlertTitle>Цена не задана — стоимость будет неизвестна</AlertTitle>
       <AlertDescription className="mt-1 space-y-2">
         <p>
-          Для модели <strong>{modelName}</strong> нет ни одной записи цены.
+          Модель <strong>{modelName}</strong> работает без цены. Отправлять
+          сообщения можно, но расход по таким запросам не считается и не
+          ограничивается бюджетом.
         </p>
         <ul className="text-muted-foreground list-inside list-disc space-y-0.5 text-sm">
+          <li>стоимость ответа показывается как unknown;</li>
+          <li>денежный лимит не резервируется под такие запросы;</li>
           <li>
-            отправить сообщение не получится: вернётся ошибка PRICE_REQUIRED;
-          </li>
-          <li>индексация документов и RAG-запросы тоже не пройдут;</li>
-          <li>
-            так сделано намеренно — платный вызов не уходит, если расход нельзя
-            учесть в бюджете.
+            индексация и RAG используют embedding-модель: для неё цена нужна
+            отдельно.
           </li>
         </ul>
         {onSetupPrice && (
           <div className="mt-2">
-            <Button size="sm" onClick={onSetupPrice}>
+            <Button size="sm" variant="outline" onClick={onSetupPrice}>
               Настроить цену
             </Button>
           </div>

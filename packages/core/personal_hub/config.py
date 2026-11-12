@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -81,10 +82,33 @@ class Settings(BaseSettings):
     pricebot_url: str = "http://pricebot:8100"
     pricebot_timeout_seconds: float = Field(default=30.0, gt=0)
 
-    # Защищённые режимы (ADR-0007). По умолчанию выключены: пока не готовы все
-    # инварианты (подготовка, восстановление, local_only), показывать рабочий
-    # индикатор защиты нельзя. Флаг убирается после приёмки среза 9.
+    # Защищённые режимы (ADR-0007). Флаг включает гибрид, локальный режим и
+    # селектор в UI. Облачный режим с предупреждениями доступен всегда: это
+    # режим по умолчанию, и скрывать его предупреждения было бы нечестно.
     protection_modes_enabled: bool = False
+    # Режим обработки для новых диалогов. Владелец выбрал «облако с
+    # предупреждениями» по умолчанию (ADR-0008), а не гибрид.
+    default_protection_mode: Literal[
+        "cloud_controlled", "direct_cloud", "protected_hybrid", "local_only"
+    ] = "cloud_controlled"
+    # Локальное сканирование текста перед отправкой в облачном режиме.
+    # Отключается, если пользователь сознательно не хочет предупреждений;
+    # режим «Прямой доступ» не сканирует всегда.
+    cloud_scan_enabled: bool = True
+
+    # Окно контекста: сколько истории уходит провайдеру. Без ограничения
+    # длинный диалог растёт в цене и может превысить лимит модели.
+    chat_history_max_messages: int = Field(default=80, ge=2, le=500)
+    chat_history_max_tokens: int = Field(default=24000, ge=1000, le=200000)
+    # Резерв под системную инструкцию и ответ модели при расчёте по context_limit.
+    chat_context_reserve_tokens: int = Field(default=1024, ge=0, le=32000)
+
+    # Политика хранения (ADR-0008). Нули выключают соответствующее действие.
+    # По умолчанию удаление диалогов выключено: архив не разрушает данные.
+    conversation_archive_after_days: int = Field(default=90, ge=0)
+    conversation_delete_after_days: int = Field(default=0, ge=0)
+    protection_artifacts_retention_days: int = Field(default=30, ge=0)
+    audit_retention_days: int = Field(default=90, ge=0)
 
     # Логирование и тесты.
     log_level: str = "INFO"

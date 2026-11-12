@@ -197,10 +197,12 @@ export interface Conversation {
   model_profile_id: string | null;
   system_instruction: string | null;
   archived: boolean;
-  /** Режим защиты диалога (ADR-0007). */
+  /** Режим защиты диалога (ADR-0007/0008). */
   protection_mode: string;
   /** Ревизия контекста: подготовка с другой ревизией отклоняется. */
   protection_revision: number;
+  /** Теги для фильтрации в сайдбаре (ADR-0008). */
+  tags: string[];
 }
 
 export interface Message {
@@ -446,7 +448,12 @@ export const api = {
     request<{
       web_search: boolean;
       /** Защищённые режимы (ADR-0007): показывать переключатель только при enabled. */
-      protection?: { enabled: boolean; modes: string[] };
+      protection?: {
+        enabled: boolean;
+        modes: string[];
+        default_mode: string;
+        cloud_scan?: boolean;
+      };
     }>("/api/v1/capabilities"),
   login: (username: string, password: string) =>
     request<TokenResponse>("/api/v1/auth/login", {
@@ -499,7 +506,8 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ capabilities }),
     }),
-  conversations: () => request<Conversation[]>("/api/v1/conversations"),
+  conversations: (archived = false) =>
+    request<Conversation[]>(`/api/v1/conversations?archived=${archived}`),
   createConversation: (input: { title?: string; model_profile_id?: string }) =>
     request<Conversation>("/api/v1/conversations", {
       method: "POST",
@@ -507,6 +515,29 @@ export const api = {
     }),
   getConversation: (id: string) =>
     request<ConversationDetail>(`/api/v1/conversations/${id}`),
+  /** Переименование, теги и архивирование диалога. */
+  updateConversation: (
+    id: string,
+    patch: { title?: string; tags?: string[]; archived?: boolean },
+  ) =>
+    request<Conversation>(`/api/v1/conversations/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  deleteConversation: (id: string) =>
+    request<void>(`/api/v1/conversations/${id}`, { method: "DELETE" }),
+  /** Экспорт диалога в markdown или json (скачивание). */
+  exportConversation: (id: string, format: "markdown" | "json" = "markdown") =>
+    requestBlob(`/api/v1/conversations/${id}/export?fmt=${format}`),
+  /** Локальное сканирование текста перед отправкой в облачном режиме. */
+  scanProtection: (text: string) =>
+    request<{
+      categories: { category: string; count: number }[];
+      has_secret: boolean;
+    }>("/api/v1/protection/scan", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    }),
   sendMessage: (
     conversationId: string,
     content: string,
@@ -515,6 +546,8 @@ export const api = {
     webSearch?: boolean,
     /** Подтверждённая подготовка: обязательна в режиме protected_hybrid. */
     preparationId?: string,
+    /** Пользователь подтвердил отправку после предупреждения облака. */
+    cloudScanAcknowledged?: boolean,
   ) =>
     request<{ generation_id: string }>(
       `/api/v1/conversations/${conversationId}/messages`,
@@ -526,6 +559,7 @@ export const api = {
           reasoning_depth: reasoningDepth ?? null,
           web_search: webSearch ?? false,
           preparation_id: preparationId ?? null,
+          cloud_scan_acknowledged: cloudScanAcknowledged ?? false,
         }),
       },
     ),
@@ -536,12 +570,19 @@ export const api = {
       body: JSON.stringify({ protection_mode: mode }),
     }),
   /** Готовит sanitized-контекст и показывает preview (ничего не отправляет). */
-  prepareProtection: (conversationId: string, text: string) =>
+  prepareProtection: (
+    conversationId: string,
+    text: string,
+    modelProfileId?: string,
+  ) =>
     request<ProtectionPreview>(
       `/api/v1/protection/conversations/${conversationId}/prepare`,
       {
         method: "POST",
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          text,
+          model_profile_id: modelProfileId ?? null,
+        }),
       },
     ),
   /** Подтверждает конкретный preview; повторный вызов идемпотентен. */

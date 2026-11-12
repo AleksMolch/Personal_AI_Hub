@@ -82,3 +82,29 @@ test("гибрид: preview с псевдонимами без отправки"
     page.getByRole("heading", { name: "Проверка перед отправкой" }),
   ).toBeHidden();
 });
+
+test("облако: предупреждение о найденной почте можно отменить", async ({
+  page,
+}) => {
+  await page.goto("/login");
+  await page.getByLabel("Логин").fill("admin");
+  await page.getByLabel("Пароль").fill("supersecret123");
+  await page.getByRole("button", { name: "Войти" }).click();
+  await expect(page.getByRole("heading", { name: "Провайдеры" })).toBeVisible();
+  await page.goto("/chat");
+
+  // Режим мог сохраниться в диалоге с прошлого теста: явно возвращаем облако.
+  await page.getByRole("button", { name: /Режим обработки данных/ }).click();
+  await page.getByRole("radio", { name: "Облако с предупреждениями" }).click();
+  await page
+    .getByLabel("Текст сообщения")
+    .fill("Моя почта ivan.petrov@example.com");
+  await page.getByRole("button", { name: "Отправить сообщение" }).click();
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("Перед отправкой в облако")).toBeVisible();
+  await expect(dialog.getByText(/E-mail/)).toBeVisible();
+  // Отмена: предупреждение закрывается и ничего не отправляется.
+  await dialog.getByRole("button", { name: "Отмена" }).click();
+  await expect(dialog.getByText("Перед отправкой в облако")).toBeHidden();
+});

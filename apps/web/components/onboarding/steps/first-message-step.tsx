@@ -78,15 +78,15 @@ export function FirstMessageStep({ onNext }: FirstMessageStepProps) {
       <div className="space-y-4">
         <Alert variant="warning">
           <AlertDescription>
-            Модели есть, но ни у одной не задана цена. Отправка сообщений будет
-            заблокирована, пока цена не задана: платный вызов не должен уходить
-            без учёта в бюджете.
+            Модели есть, но цены не заданы. Чат уже работает: без цены стоимость
+            ответа будет неизвестна, а денежный лимит не сможет ограничить такие
+            запросы. Цену можно указать позже — это не блокирует настройку.
           </AlertDescription>
         </Alert>
         <div className="flex flex-wrap gap-2">
           <Button onClick={openPrices}>Настроить цены</Button>
           <Button variant="outline" onClick={onNext}>
-            Завершить настройку
+            Продолжить без цен
           </Button>
         </div>
       </div>

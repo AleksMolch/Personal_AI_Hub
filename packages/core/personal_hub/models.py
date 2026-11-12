@@ -164,6 +164,9 @@ class Conversation(Base, TimestampMixin):
     protection_revision: Mapped[int] = mapped_column(
         Integer, default=0, server_default="0", nullable=False
     )
+    # Теги диалога для фильтрации в сайдбаре. Храним списком строк: тегов
+    # немного, отдельная таблица усложнила бы выборку без выигрыша.
+    tags: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
 
 
 class Message(Base, TimestampMixin):

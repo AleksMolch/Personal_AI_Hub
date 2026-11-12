@@ -25,15 +25,13 @@ from personal_hub.config import get_settings
 from personal_hub.db.engine import get_session
 from personal_hub.models import (
     Conversation,
-    Message,
-    MessageStatus,
     ModelProfile,
     ProtectionAuditLog,
     ProtectionEntity,
     ProviderCredential,
     User,
 )
-from personal_hub.protection.detector import detect
+from personal_hub.protection.detector import EntityCategory, detect
 from personal_hub.protection.errors import ProtectionError
 from personal_hub.protection.modes import ProtectionMode
 from personal_hub.protection.repository import (
@@ -48,14 +46,18 @@ from personal_hub.security.crypto import get_cipher
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.chat_context import build_window, load_history
 from app.deps import get_current_user
 from app.schemas import (
     ProtectionAuditOut,
+    ProtectionCategoryOut,
     ProtectionCommitOut,
     ProtectionCommitRequest,
     ProtectionEntityOut,
     ProtectionPrepareRequest,
     ProtectionPreviewOut,
+    ProtectionScanOut,
+    ProtectionScanRequest,
 )
 
 router = APIRouter(prefix="/api/v1/protection", tags=["protection"])
@@ -95,25 +97,39 @@ async def _owned_conversation(
     return conversation
 
 
-async def _history(
-    session: AsyncSession, conversation_id: uuid.UUID
-) -> list[Message]:
-    """Возвращает историю в том же виде, в каком её увидит провайдер.
+@router.post("/scan", response_model=ProtectionScanOut)
+async def scan_text(
+    payload: ProtectionScanRequest,
+    user: User = Depends(get_current_user),
+) -> ProtectionScanOut:
+    """Локально сканирует текст перед отправкой в облачном режиме.
 
-    Фильтры и порядок совпадают с отправкой сообщения: только завершённые
-    сообщения user/assistant. Иначе digest подготовки не совпал бы с payload,
-    который реально уходит модели.
+    Возвращает только категории и число вхождений: исходные значения не
+    покидают процесс и не логируются. Эндпоинт не сохраняет текст и не требует
+    включённого флага защищённых режимов — предупреждения режима по умолчанию
+    должны работать всегда.
+
+    Args:
+        payload: Текст сообщения.
+        user: Текущий пользователь (нужен для единого контура доступа).
+
+    Returns:
+        Категории найденных данных и признак наличия секретов.
     """
-    result = await session.execute(
-        select(Message)
-        .where(
-            Message.conversation_id == conversation_id,
-            Message.role.in_(["user", "assistant"]),
-            Message.status == MessageStatus.COMPLETED.value,
-        )
-        .order_by(Message.created_at, Message.id)
+    spans = detect(payload.text)
+    counts: dict[str, int] = {}
+    has_secret = False
+    for span in spans:
+        counts[span.category.value] = counts.get(span.category.value, 0) + 1
+        if span.category == EntityCategory.SECRET:
+            has_secret = True
+    return ProtectionScanOut(
+        categories=[
+            ProtectionCategoryOut(category=category, count=count)
+            for category, count in sorted(counts.items())
+        ],
+        has_secret=has_secret,
     )
-    return list(result.scalars().all())
 
 
 @router.get("/audit", response_model=list[ProtectionAuditOut])
@@ -234,10 +250,30 @@ async def prepare_protection(
             "Переключите режим диалога.",
         )
 
-    history = await _history(session, conversation_id)
-    messages: list[dict[str, str]] = [
-        {"role": message.role, "content": message.content} for message in history
-    ]
+    settings = get_settings()
+    # Окно контекста должно совпадать с отправкой: иначе digest подготовки не
+    # сойдётся с payload, и commit будет отклонён.
+    model = None
+    model_id = payload.model_profile_id or conversation.model_profile_id
+    if model_id is not None:
+        model = await session.scalar(
+            select(ModelProfile)
+            .join(
+                ProviderCredential,
+                ModelProfile.provider_id == ProviderCredential.id,
+            )
+            .where(
+                ModelProfile.id == model_id,
+                ProviderCredential.user_id == user.id,
+            )
+        )
+        if model is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Модель не найдена.")
+
+    window = build_window(
+        await load_history(session, conversation_id), model=model, settings=settings
+    )
+    messages: list[dict[str, str]] = list(window.messages)
     messages.append({"role": "user", "content": payload.text})
 
     cipher = get_cipher()
@@ -309,7 +345,15 @@ async def prepare_protection(
         sanitized_text=sanitized_text,
         entities=entities,
         expires_at=preparation.expires_at,
-        note=_PREPARE_NOTE,
+        note=(
+            (
+                f"Из-за лимита контекста не передаются {window.dropped} старых "
+                "сообщений. "
+                if window.dropped
+                else ""
+            )
+            + _PREPARE_NOTE
+        ),
     )
 
 

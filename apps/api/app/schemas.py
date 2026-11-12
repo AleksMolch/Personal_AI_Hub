@@ -213,9 +213,42 @@ class ConversationUpdate(BaseModel):
     archived: bool | None = None
     model_profile_id: uuid.UUID | None = None
     system_instruction: str | None = None
-    # ADR-0007: режим выбирает пользователь. Смена режима увеличивает ревизию,
-    # поэтому подготовка, сделанная до переключения, не может быть отправлена.
-    protection_mode: Literal["cloud_controlled", "protected_hybrid", "local_only"] | None = None
+    # ADR-0007/0008: режим выбирает пользователь. Смена режима увеличивает
+    # ревизию, поэтому подготовка до переключения не может быть отправлена.
+    protection_mode: Literal[
+        "cloud_controlled", "direct_cloud", "protected_hybrid", "local_only"
+    ] | None = None
+    # Теги для фильтрации в сайдбаре; нормализуются валидатором.
+    tags: list[str] | None = None
+
+    @field_validator("tags")
+    @classmethod
+    def _normalize_tags(cls, value: list[str] | None) -> list[str] | None:
+        """Обрезает теги, убирает пустые и дубликаты без учёта регистра.
+
+        Ограничения (не больше 10 тегов, каждый до 24 символов) проверяются
+        здесь, потому что Field не умеет ограничивать элементы списка.
+        """
+        if value is None:
+            return None
+        result: list[str] = []
+        seen: set[str] = set()
+        for raw in value:
+            if not isinstance(raw, str):
+                raise ValueError("каждый тег должен быть строкой")
+            tag = raw.strip()
+            if not tag:
+                continue
+            if len(tag) > 24:
+                raise ValueError("тег длиннее 24 символов")
+            key = tag.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(tag)
+        if len(result) > 10:
+            raise ValueError("не больше 10 тегов")
+        return result
 
 
 class MessageOut(BaseModel):
@@ -245,6 +278,8 @@ class ConversationOut(BaseModel):
     # Режим защиты и ревизия контекста (ADR-0007).
     protection_mode: str
     protection_revision: int
+    # Теги диалога (ADR-0008).
+    tags: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -259,6 +294,9 @@ class MessageCreate(BaseModel):
     # ADR-0007: в режиме protected_hybrid сообщение можно отправить только с
     # подтверждённой подготовкой. Без неё провайдеру ушёл бы приватный текст.
     preparation_id: uuid.UUID | None = None
+    # ADR-0008: в облачном режиме клиент показывает предупреждение о найденных
+    # категориях; флаг фиксирует, что пользователь подтвердил отправку.
+    cloud_scan_acknowledged: bool = False
     # Глубина рассуждений. Допустимые значения — нормализованный минимум,
     # переносимый между OpenAI-совместимыми провайдерами (openai_compatible →
     # reasoning_effort, openrouter → reasoning.effort). Значение принимается
@@ -592,11 +630,35 @@ class FxRateOut(BaseModel):
 # ---- Защищённые режимы (ADR-0007) -------------------------------------------
 
 
+class ProtectionScanRequest(BaseModel):
+    """Запрос локального сканирования текста перед отправкой в облако."""
+
+    text: str = Field(min_length=1, max_length=100_000)
+
+
+class ProtectionCategoryOut(BaseModel):
+    """Найденная категория данных и число вхождений."""
+
+    category: str
+    count: int
+
+
+class ProtectionScanOut(BaseModel):
+    """Результат сканирования: категории без исходных значений."""
+
+    categories: list[ProtectionCategoryOut] = Field(default_factory=list)
+    # Секреты (ключи, пароли) требуют отдельного подтверждения пользователя.
+    has_secret: bool = False
+
+
 class ProtectionPrepareRequest(BaseModel):
     """Запрос на подготовку защищённого контекста."""
 
     # Новое сообщение пользователя, которое нужно очистить вместе с историей.
     text: str = Field(min_length=1, max_length=100_000)
+    # Модель, которой уйдёт запрос: нужна, чтобы окно контекста совпало с
+    # отправкой (лимит модели может быть меньше настройки).
+    model_profile_id: uuid.UUID | None = None
     # Словарь организаций/объектов: детектор сам их не знает, пока пользователь
     # не перечислит названия.
     dictionary: dict[str, list[str]] | None = None

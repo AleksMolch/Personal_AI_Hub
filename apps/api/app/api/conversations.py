@@ -22,6 +22,7 @@ from personal_hub.models import (
     ProviderCredential,
     User,
 )
+from personal_hub.protection.detector import detect
 from personal_hub.protection.errors import ProtectionError
 from personal_hub.protection.modes import ProtectionMode
 from personal_hub.protection.repository import (
@@ -46,10 +47,11 @@ from personal_hub.websearch.service import (
     format_search_warnings,
     get_web_search_provider,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.billing import check_and_reserve, estimate_units, get_latest_price
+from app.chat_context import build_window, load_history
 from app.chat_worker import run_generation
 from app.deps import get_current_user
 from app.schemas import (
@@ -151,6 +153,8 @@ async def create_conversation(
         title=payload.title or "Новый диалог",
         model_profile_id=payload.model_profile_id,
         system_instruction=payload.system_instruction,
+        # ADR-0008: режим по умолчанию задаёт сервер, а не клиент.
+        protection_mode=get_settings().default_protection_mode,
     )
     session.add(conversation)
     await session.commit()
@@ -238,17 +242,14 @@ async def create_message(
     # цены разрешена (ADR-0007). Тогда стоимость пишется как unknown, а не ноль.
     price = await get_latest_price(session, model.id)
 
-    # История для провайдера: завершённые сообщения + новое сообщение пользователя.
-    history_result = await session.execute(
-        select(Message)
-        .where(
-            Message.conversation_id == conversation.id,
-            Message.role.in_(["user", "assistant"]),
-            Message.status == MessageStatus.COMPLETED.value,
-        )
-        .order_by(Message.created_at, Message.id)
-    )
-    history_messages = list(history_result.scalars().all())
+    settings = get_settings()
+    # История для провайдера: завершённые сообщения в окне контекста (ADR-0008).
+    # Окно ограничено числом сообщений и токенов, иначе длинный диалог рос бы в
+    # цене и мог превысить лимит модели.
+    history_messages = await load_history(session, conversation.id)
+    window = build_window(history_messages, model=model, settings=settings)
+    # trim_history оставляет хвост, поэтому отброшенные — это голова списка.
+    kept_history = history_messages[window.dropped :]
 
     # ADR-0007: режим обработки диалога. В гибриде наружу уходит только
     # подтверждённый sanitized-контекст; в локальном режиме внешние вызовы
@@ -274,6 +275,14 @@ async def create_message(
             )
 
     preparation = None
+    if mode != ProtectionMode.PROTECTED_HYBRID and payload.preparation_id is not None:
+        # Подготовка имеет смысл только в гибриде. Молча игнорировать её нельзя:
+        # клиент мог считать, что отправляет очищенный текст, а ушёл бы исходный.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Подготовка применима только к режиму «Защищённый гибрид». "
+            "(PROTECTION_PREPARATION_NOT_APPLICABLE)",
+        )
     if mode == ProtectionMode.PROTECTED_HYBRID:
         if payload.preparation_id is None:
             raise HTTPException(
@@ -308,10 +317,7 @@ async def create_message(
             )
         # Сверяем, что отправляемое сообщение — именно то, что пользователь
         # видел в preview: иначе commit подтверждал бы другой текст.
-        private_messages = [
-            {"role": message.role, "content": message.content}
-            for message in history_messages
-        ]
+        private_messages = list(window.messages)
         private_messages.append({"role": "user", "content": payload.content})
         if payload_digest({"messages": private_messages}) != preparation.private_digest:
             raise HTTPException(
@@ -325,7 +331,7 @@ async def create_message(
     # он сохранён при генерации и не зависит от текущего словаря.
     chat_messages: list[ChatMessage] = []
     sanitized_list = list(preparation.sanitized_messages) if preparation else []
-    for index, message in enumerate(history_messages):
+    for index, message in enumerate(kept_history):
         if preparation is not None:
             own = (message.protection or {}).get("sanitized")
             if own:
@@ -347,7 +353,6 @@ async def create_message(
     # Веб-поиск выполняется ДО обращения к LLM и только один раз на запрос:
     # автоматические «уточняющие» поиски модели недопустимы, так как
     # неуправляемо увеличивают расходы и задержку.
-    settings = get_settings()
     web_citations: list[WebCitation] = []
     search_context = ""
     search_warning: str | None = None
@@ -392,17 +397,50 @@ async def create_message(
         history_text, model.output_limit, reasoning_depth
     )
 
+    # Облачный режим: локально фиксируем категории, которые клиент показал
+    # пользователю (ADR-0008). Это запись аудита предупреждения, а не блокировка:
+    # подтверждение остаётся шагом UX, чтобы не ломать автоматизацию.
+    cloud_scan: dict | None = None
+    if mode == ProtectionMode.CLOUD_CONTROLLED and settings.cloud_scan_enabled:
+        counts: dict[str, int] = {}
+        for span in detect(payload.content):
+            counts[span.category.value] = counts.get(span.category.value, 0) + 1
+        cloud_scan = {
+            "categories": [
+                {"category": category, "count": count}
+                for category, count in sorted(counts.items())
+            ],
+            "acknowledged": payload.cloud_scan_acknowledged,
+        }
+
+    # Автоназвание: только для дефолтного названия и только по первому вопросу,
+    # чтобы не перезаписывать ручное переименование. Пустой заголовок не ставим.
+    if conversation.title == "Новый диалог":
+        prior_user_messages = await session.scalar(
+            select(func.count())
+            .select_from(Message)
+            .where(
+                Message.conversation_id == conversation.id,
+                Message.role == "user",
+            )
+        )
+        if not prior_user_messages:
+            auto_title = " ".join(payload.content.split())[:60].strip()
+            if auto_title:
+                conversation.title = auto_title
+
     # Сообщение пользователя.
-    user_protection: dict = {}
+    user_protection: dict = {"mode": mode.value}
     if preparation is not None:
         # В снимке сообщения храним sanitized-текст: он пойдёт в следующий turn,
         # а не восстановленный приватный.
-        user_protection = {
-            "mode": mode.value,
-            "preparation_id": str(preparation.id),
-            "sanitized": user_sanitized,
-            "restored": True,
-        }
+        user_protection.update(
+            {
+                "preparation_id": str(preparation.id),
+                "sanitized": user_sanitized,
+                "restored": True,
+            }
+        )
         # Ревизия меняется после каждого сообщения: старая подготовка больше не
         # может быть использована для следующей отправки.
         conversation.protection_revision += 1
@@ -418,22 +456,24 @@ async def create_message(
     session.add(user_message)
     await session.flush()
 
-    # Журнал отправки: только метаданные, без текста сообщения.
-    if mode in (ProtectionMode.PROTECTED_HYBRID, ProtectionMode.LOCAL_ONLY):
-        await record_audit(
-            session,
-            user_id=user.id,
-            conversation_id=conversation.id,
-            action="message_sent",
-            details={
-                "mode": mode.value,
-                "preparation_id": (
-                    str(preparation.id) if preparation is not None else None
-                ),
-                "revision": conversation.protection_revision,
-                "local_provider": bool(provider.is_local),
-            },
-        )
+    # Журнал отправки: только метаданные, без текста сообщения. Пишем для всех
+    # режимов: при разборе инцидента важно знать не только гибрид, но и то, что
+    # текст ушёл в облако напрямую.
+    await record_audit(
+        session,
+        user_id=user.id,
+        conversation_id=conversation.id,
+        action="message_sent",
+        details={
+            "mode": mode.value,
+            "preparation_id": (
+                str(preparation.id) if preparation is not None else None
+            ),
+            "revision": conversation.protection_revision,
+            "local_provider": bool(provider.is_local),
+            "dropped_messages": window.dropped,
+        },
+    )
 
     # Сообщение-генерация (ассистент).
     # reasoning_depth и источники веб-поиска сохраняются в снимке: история
@@ -461,6 +501,15 @@ async def create_message(
                 ),
             },
             "reasoning_depth": reasoning_depth.value if reasoning_depth else None,
+            # Окно контекста: сколько истории реально ушло. Нужно, чтобы UI мог
+            # объяснить, почему модель «не помнит» ранние сообщения.
+            "context": {
+                "kept": len(kept_history) + 1,
+                "dropped": window.dropped,
+                "estimated_tokens": window.estimated_tokens,
+            },
+            # Предупреждение облачного сканирования (ADR-0008).
+            "cloud_scan": cloud_scan,
             "web_search": {
                 "used": bool(search_context),
                 "warning": search_warning,

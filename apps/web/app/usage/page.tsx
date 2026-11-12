@@ -417,7 +417,9 @@ export default function UsagePage() {
             <CardTitle>Бюджет</CardTitle>
             <CardDescription>
               Пустое поле означает «без лимита»; лимит выражается в валюте
-              бюджета{currency ? ` (${currency})` : ""}.
+              бюджета{currency ? ` (${currency})` : ""}. Запросы к моделям без
+              цены не резервируются и лимитом не ограничиваются — их стоимость
+              показывается как unknown.
             </CardDescription>
           </CardHeader>
           <CardContent>

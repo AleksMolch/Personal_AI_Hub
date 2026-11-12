@@ -16,7 +16,7 @@
 // собственному backend, который владеет ключами и вызывает провайдеров.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Menu, Plus, Search } from "lucide-react";
+import { Menu, MoreHorizontal, Plus, Search, X } from "lucide-react";
 
 import {
   ChatInput,
@@ -24,6 +24,10 @@ import {
   type ReasoningDepth,
 } from "@/components/chat/chat-input";
 import { EmptyChatState } from "@/components/chat/empty-chat-state";
+import {
+  CloudScanDialog,
+  type CloudScanResult,
+} from "@/components/chat/cloud-scan-dialog";
 import { AppHeader } from "@/components/app-header";
 import { MessageList } from "@/components/chat/message-list";
 import type { ChatMessageView } from "@/components/chat/message";
@@ -40,11 +44,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   api,
   Conversation,
+  downloadBlob,
   eventSourceUrl,
   getToken,
   Message,
@@ -112,6 +124,26 @@ export default function ChatPage() {
   } | null>(null);
   const [protectionBusy, setProtectionBusy] = useState(false);
 
+  // ADR-0008: предупреждения облака, архив и управление диалогами.
+  const [cloudScanEnabled, setCloudScanEnabled] = useState(false);
+  const [cloudScan, setCloudScan] = useState<CloudScanResult | null>(null);
+  const [pendingCloudSend, setPendingCloudSend] = useState<{
+    conversationId: string;
+    text: string;
+    options: { reasoningDepth?: ReasoningDepth };
+  } | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [tagsTarget, setTagsTarget] = useState<Conversation | null>(null);
+  const [tagsDraft, setTagsDraft] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
+  // Открытое меню строки: контролируем явно, чтобы закрыть его ДО открытия
+  // диалога. Иначе Radix оставляет меню поверх модального окна.
+  const [menuId, setMenuId] = useState<string | null>(null);
+
   /**
    * Загружает диалоги, модели, сводку расходов и записи usage.
    * Стоимость каждого ответа берётся из usage по `message_id`.
@@ -132,6 +164,12 @@ export default function ChatPage() {
       setSummary(s);
       setWebSearchAvailable(caps.web_search);
       setProtectionAvailable(Boolean(caps.protection?.enabled));
+      setCloudScanEnabled(Boolean(caps.protection?.cloud_scan));
+      // Стартовый режим задаёт сервер (ADR-0008): владелец выбрал «облако с
+      // предупреждениями», поэтому не полагаемся на литерал в коде.
+      if (caps.protection?.default_mode) {
+        setProtectionMode(caps.protection.default_mode);
+      }
       const byMessage: Record<string, UsageRecord> = {};
       for (const record of records) {
         if (record.message_id) byMessage[record.message_id] = record;
@@ -180,11 +218,22 @@ export default function ChatPage() {
   async function newConversation() {
     try {
       const conv = await api.createConversation({ title: "Новый диалог" });
-      setConversations((c) => [conv, ...c]);
+      // Выбранный режим применяем и к явно созданному диалогу: иначе первый
+      // чувствительный текст ушёл бы в облако, хотя в селекторе стоит гибрид.
+      if (protectionAvailable && protectionMode !== "cloud_controlled") {
+        await api.setProtectionMode(conv.id, protectionMode);
+      }
       setCurrentId(conv.id);
       setMessages([]);
       setSidebarOpen(false);
       setError(null);
+      // В режиме просмотра архива новый диалог в список не попадёт: выходим из
+      // архива, чтобы пользователь увидел созданную строку.
+      if (showArchived) {
+        await reloadConversations(false);
+      } else {
+        setConversations((c) => [conv, ...c]);
+      }
     } catch {
       setError("Не удалось создать диалог.");
     }
@@ -269,7 +318,13 @@ export default function ChatPage() {
     if (protectionAvailable && protectionMode === "protected_hybrid") {
       setProtectionBusy(true);
       try {
-        const preview = await api.prepareProtection(conversationId, text);
+        // Модель передаём обязательно: окно контекста в prepare должно совпасть
+        // с отправкой, иначе digest не сойдётся при малом контексте модели.
+        const preview = await api.prepareProtection(
+          conversationId,
+          text,
+          selectedModel || undefined,
+        );
         setProtectionPreview(preview);
         setPendingSend({ conversationId, text, options });
       } catch (err) {
@@ -282,6 +337,27 @@ export default function ChatPage() {
         setProtectionBusy(false);
       }
       return;
+    }
+
+    // ADR-0008: в облачном режиме локально проверяем текст и показываем
+    // категории. Это предупреждение, а не блокировка: сбой сканирования не
+    // должен останавливать работу.
+    if (
+      protectionMode === "cloud_controlled" &&
+      cloudScanEnabled &&
+      !streaming
+    ) {
+      try {
+        const result = await api.scanProtection(text);
+        if (result.categories.length > 0 || result.has_secret) {
+          setCloudScan(result);
+          setPendingCloudSend({ conversationId, text, options });
+          return;
+        }
+      } catch {
+        // Локальная проверка — подсказка. Если она недоступна, отправляем как
+        // раньше: молча блокировать чат из-за сбоя детектора нельзя.
+      }
     }
 
     await deliver(conversationId, text, options);
@@ -324,6 +400,54 @@ export default function ChatPage() {
     setPendingSend(null);
   }
 
+  /** Подтверждает отправку в облако после предупреждения (ADR-0008). */
+  function sendCloudAnyway() {
+    if (!pendingCloudSend) return;
+    const pending = pendingCloudSend;
+    setCloudScan(null);
+    setPendingCloudSend(null);
+    void deliver(
+      pending.conversationId,
+      pending.text,
+      pending.options,
+      undefined,
+      true,
+    );
+  }
+
+  /** Отмена предупреждения: ничего не отправляется. */
+  function cancelCloudScan() {
+    setCloudScan(null);
+    setPendingCloudSend(null);
+  }
+
+  /** Из предупреждения облака переходит в гибрид и готовит preview. */
+  async function switchCloudToHybrid() {
+    if (!pendingCloudSend) return;
+    const pending = pendingCloudSend;
+    setCloudScan(null);
+    setPendingCloudSend(null);
+    await changeProtectionMode("protected_hybrid");
+    setProtectionBusy(true);
+    try {
+      const preview = await api.prepareProtection(
+        pending.conversationId,
+        pending.text,
+        selectedModel || undefined,
+      );
+      setProtectionPreview(preview);
+      setPendingSend(pending);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Не удалось подготовить защищённый запрос.",
+      );
+    } finally {
+      setProtectionBusy(false);
+    }
+  }
+
   /** Меняет режим защиты диалога (ADR-0007). */
   async function changeProtectionMode(mode: string) {
     setProtectionMode(mode);
@@ -351,6 +475,7 @@ export default function ChatPage() {
     text: string,
     options: { reasoningDepth?: ReasoningDepth },
     preparationId?: string,
+    cloudScanAcknowledged = false,
   ) {
     // Оптимистично показываем вопрос пользователя до ответа сервера.
     setMessages((prev) => [
@@ -377,6 +502,7 @@ export default function ChatPage() {
         // результаты поиска попадают во вход запроса и увеличивают его цену.
         webSearchAvailable && webSearchEnabled,
         preparationId,
+        cloudScanAcknowledged,
       );
       setStreamingId(generation_id);
       setStreaming(true);
@@ -460,7 +586,9 @@ export default function ChatPage() {
             ? "hybrid"
             : protection.mode === "local_only"
               ? "local"
-              : "cloud";
+              : protection.mode === "direct_cloud"
+                ? "direct"
+                : "cloud";
         return {
           id: m.id,
           role: m.role === "user" ? "user" : "assistant",
@@ -499,11 +627,163 @@ export default function ChatPage() {
     [models],
   );
 
+  /** Уникальные теги всех загруженных диалогов для панели фильтров. */
+  const allTags = useMemo(() => {
+    const byKey = new Map<string, string>();
+    for (const conversation of conversations) {
+      for (const tag of conversation.tags) {
+        const key = tag.toLowerCase();
+        if (!byKey.has(key)) byKey.set(key, tag);
+      }
+    }
+    return [...byKey.values()].sort((a, b) => a.localeCompare(b, "ru"));
+  }, [conversations]);
+
   const filteredConversations = useMemo(() => {
     const query = filter.trim().toLowerCase();
-    if (!query) return conversations;
-    return conversations.filter((c) => c.title.toLowerCase().includes(query));
-  }, [conversations, filter]);
+    return conversations.filter((c) => {
+      // Поиск идёт и по названию, и по тегам: пользователь часто помнит
+      // метку, а не заголовок.
+      const matchesQuery =
+        !query ||
+        c.title.toLowerCase().includes(query) ||
+        c.tags.some((tag) => tag.toLowerCase().includes(query));
+      // Несколько выбранных тегов означают «И»: так проще сузить выборку.
+      const matchesTags = selectedTags.every((wanted) =>
+        c.tags.some((tag) => tag.toLowerCase() === wanted.toLowerCase()),
+      );
+      return matchesQuery && matchesTags;
+    });
+  }, [conversations, filter, selectedTags]);
+
+  /** Сколько старых сообщений не ушло провайдеру в последнем ответе. */
+  const droppedContext = useMemo(() => {
+    const lastAssistant = [...messages]
+      .reverse()
+      .find((message) => message.role === "assistant");
+    const context = (
+      lastAssistant?.model_snapshot as
+        { context?: { dropped?: number } } | undefined
+    )?.context;
+    return context?.dropped ?? 0;
+  }, [messages]);
+
+  /** Загружает список диалогов с учётом архива. */
+  async function reloadConversations(archived: boolean) {
+    try {
+      const list = await api.conversations(archived);
+      setConversations(list);
+      setShowArchived(archived);
+    } catch {
+      setError("Не удалось загрузить диалоги.");
+    }
+  }
+
+  /** Начинает переименование диалога. */
+  function startRename(conversation: Conversation) {
+    setRenameId(conversation.id);
+    setRenameValue(conversation.title);
+  }
+
+  /** Сохраняет новое название и обновляет строку без перезагрузки. */
+  async function commitRename() {
+    const id = renameId;
+    const title = renameValue.trim();
+    setRenameId(null);
+    if (!id || !title) return;
+    try {
+      const updated = await api.updateConversation(id, { title });
+      setConversations((list) =>
+        list.map((c) => (c.id === updated.id ? updated : c)),
+      );
+    } catch {
+      setError("Не удалось переименовать диалог.");
+    }
+  }
+
+  /** Открывает редактор тегов для диалога. */
+  function openTags(conversation: Conversation) {
+    setTagsTarget(conversation);
+    setTagsDraft(conversation.tags);
+    setTagInput("");
+  }
+
+  /** Добавляет тег из поля ввода (без дублей по регистру). */
+  function addTag() {
+    const tag = tagInput.trim();
+    if (!tag) return;
+    if (!tagsDraft.some((item) => item.toLowerCase() === tag.toLowerCase())) {
+      setTagsDraft((tags) => [...tags, tag]);
+    }
+    setTagInput("");
+  }
+
+  /** Сохраняет теги диалога. */
+  async function saveTags() {
+    const target = tagsTarget;
+    if (!target) return;
+    setTagsTarget(null);
+    try {
+      const updated = await api.updateConversation(target.id, {
+        tags: tagsDraft,
+      });
+      setConversations((list) =>
+        list.map((c) => (c.id === updated.id ? updated : c)),
+      );
+    } catch {
+      setError("Не удалось сохранить теги.");
+    }
+  }
+
+  /** Архивирует или возвращает диалог из архива. */
+  async function toggleArchive(conversation: Conversation) {
+    try {
+      await api.updateConversation(conversation.id, {
+        archived: !conversation.archived,
+      });
+      await reloadConversations(showArchived);
+    } catch {
+      setError("Не удалось изменить архив диалога.");
+    }
+  }
+
+  /** Скачивает диалог в markdown. */
+  async function exportConversation(conversation: Conversation) {
+    try {
+      const blob = await api.exportConversation(conversation.id);
+      const safeName =
+        conversation.title.replace(/[\\/:*?"<>|]+/g, "-").trim() || "dialog";
+      downloadBlob(blob, `${safeName}.md`);
+    } catch {
+      setError("Не удалось экспортировать диалог.");
+    }
+  }
+
+  /** Удаляет диалог после подтверждения и очищает состояние. */
+  async function confirmDelete() {
+    const target = deleteTarget;
+    if (!target) return;
+    setDeleteTarget(null);
+    try {
+      await api.deleteConversation(target.id);
+      const nextList = conversations.filter((c) => c.id !== target.id);
+      setConversations(nextList);
+      if (currentId === target.id) {
+        esRef.current?.close();
+        setStreamingId(null);
+        setStreaming(false);
+        setStreamContent("");
+        setMessages([]);
+        setProtectionPreview(null);
+        setPendingSend(null);
+        setCurrentId(null);
+        const next = nextList[0];
+        if (next) await openConversation(next.id);
+      }
+    } catch {
+      setError("Не удалось удалить диалог.");
+    }
+  }
 
   const priceMissing = Boolean(error && error.toLowerCase().includes("цена"));
 
@@ -622,10 +902,71 @@ export default function ChatPage() {
               <Input
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                placeholder="Поиск по диалогам"
+                placeholder="Поиск по названию и тегам"
                 aria-label="Поиск по диалогам"
                 className="pl-7"
               />
+            </div>
+
+            {allTags.length > 0 && (
+              <div
+                className="flex flex-wrap items-center gap-1"
+                aria-label="Фильтр по тегам"
+              >
+                {allTags.map((tag) => {
+                  const active = selectedTags.some(
+                    (item) => item.toLowerCase() === tag.toLowerCase(),
+                  );
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() =>
+                        setSelectedTags((tags) =>
+                          active
+                            ? tags.filter(
+                                (item) =>
+                                  item.toLowerCase() !== tag.toLowerCase(),
+                              )
+                            : [...tags, tag],
+                        )
+                      }
+                      className={cn(
+                        "rounded-full border px-2 py-0.5 text-pah-xs transition-colors",
+                        active
+                          ? "bg-secondary text-secondary-foreground border-transparent"
+                          : "text-muted-foreground hover:bg-accent",
+                      )}
+                    >
+                      {tag}
+                    </button>
+                  );
+                })}
+                {selectedTags.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground text-pah-xs underline"
+                    onClick={() => setSelectedTags([])}
+                  >
+                    Сбросить
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground h-7 px-2 text-pah-xs"
+                onClick={() => void reloadConversations(!showArchived)}
+              >
+                {showArchived ? "Скрыть архив" : "Показать архив"}
+              </Button>
+              <span className="text-muted-foreground text-pah-xs">
+                {filteredConversations.length} из {conversations.length}
+              </span>
             </div>
 
             {loading ? (
@@ -636,27 +977,132 @@ export default function ChatPage() {
               </div>
             ) : filteredConversations.length === 0 ? (
               <p className="text-muted-foreground px-1 text-pah-sm">
-                {filter
+                {filter || selectedTags.length
                   ? "Ничего не найдено."
-                  : "Диалогов пока нет — создайте первый."}
+                  : showArchived
+                    ? "Архив пуст."
+                    : "Диалогов пока нет — создайте первый."}
               </p>
             ) : (
-              <ul className="flex flex-col gap-0.5">
+              <ul className="flex flex-col gap-1">
                 {filteredConversations.map((c) => (
                   <li key={c.id}>
-                    <button
-                      type="button"
-                      onClick={() => openConversation(c.id)}
-                      aria-current={c.id === currentId ? "true" : undefined}
+                    <div
                       className={cn(
-                        "w-full truncate rounded-md px-2 py-1.5 text-left text-pah-sm transition-colors",
+                        "rounded-md transition-colors",
                         c.id === currentId
-                          ? "bg-secondary text-secondary-foreground font-medium"
-                          : "hover:bg-accent hover:text-accent-foreground",
+                          ? "bg-secondary"
+                          : "hover:bg-accent/60",
                       )}
                     >
-                      {c.title || "Без названия"}
-                    </button>
+                      <div className="flex items-center gap-1">
+                        {renameId === c.id ? (
+                          <form
+                            className="flex min-w-0 flex-1 items-center gap-1 px-1 py-0.5"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              void commitRename();
+                            }}
+                          >
+                            <Input
+                              autoFocus
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Escape") {
+                                  event.preventDefault();
+                                  setRenameId(null);
+                                }
+                              }}
+                              aria-label={`Новое название диалога ${c.title}`}
+                              className="h-7 text-pah-sm"
+                            />
+                            <Button
+                              type="submit"
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2 text-pah-xs"
+                            >
+                              ОК
+                            </Button>
+                          </form>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void openConversation(c.id)}
+                            onDoubleClick={() => startRename(c)}
+                            aria-current={
+                              c.id === currentId ? "true" : undefined
+                            }
+                            className="min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-pah-sm"
+                            title={c.title}
+                          >
+                            {c.title || "Без названия"}
+                          </button>
+                        )}
+                        <DropdownMenu
+                          open={menuId === c.id}
+                          onOpenChange={(open) => setMenuId(open ? c.id : null)}
+                        >
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`Действия: ${c.title}`}
+                            >
+                              <MoreHorizontal />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onSelect={() => startRename(c)}>
+                              Переименовать
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                setMenuId(null);
+                                // Диалог открываем после закрытия меню: иначе
+                                // фокус-ловушка модалки оставляет меню поверх.
+                                window.setTimeout(() => openTags(c), 0);
+                              }}
+                            >
+                              Теги…
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => void toggleArchive(c)}
+                            >
+                              {c.archived ? "Вернуть из архива" : "В архив"}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => void exportConversation(c)}
+                            >
+                              Экспорт .md
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                setMenuId(null);
+                                window.setTimeout(() => setDeleteTarget(c), 0);
+                              }}
+                              className="text-destructive"
+                            >
+                              Удалить
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                      {c.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 px-2 pb-1.5">
+                          {c.tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="bg-muted text-muted-foreground rounded px-1 text-pah-xs"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -750,6 +1196,15 @@ export default function ChatPage() {
                 />
               }
             />
+          )}
+
+          {/* Окно контекста: объясняем, почему модель не видит ранние
+              сообщения, вместо тихого усечения (ADR-0008). */}
+          {droppedContext > 0 && (
+            <p className="text-muted-foreground px-4 pt-2 text-pah-xs">
+              В последний запрос не вошли {droppedContext} старых сообщений —
+              лимит контекста.
+            </p>
           )}
 
           {/* Предупреждение показывается НАД полем ввода, а не вместо него:
@@ -879,6 +1334,101 @@ export default function ChatPage() {
               disabled={protectionBusy}
             >
               {protectionBusy ? "Отправка…" : "Подтвердить и отправить"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <CloudScanDialog
+        open={cloudScan !== null}
+        scan={cloudScan}
+        busy={protectionBusy}
+        onCancel={cancelCloudScan}
+        onSendAnyway={sendCloudAnyway}
+        onUseHybrid={() => void switchCloudToHybrid()}
+      />
+
+      {/* Редактор тегов: до 10 тегов, каждый до 24 символов — те же
+          ограничения проверяет сервер. */}
+      <Dialog
+        open={Boolean(tagsTarget)}
+        onOpenChange={(open) => !open && setTagsTarget(null)}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Теги диалога</DialogTitle>
+            <DialogDescription>
+              До 10 тегов, каждый до 24 символов. Фильтр в списке ищет по
+              названию и тегам.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap gap-1">
+            {tagsDraft.map((tag) => (
+              <Badge key={tag} variant="secondary" className="gap-1">
+                {tag}
+                <button
+                  type="button"
+                  aria-label={`Удалить тег ${tag}`}
+                  onClick={() =>
+                    setTagsDraft((tags) => tags.filter((t) => t !== tag))
+                  }
+                >
+                  <X className="size-3" />
+                </button>
+              </Badge>
+            ))}
+            {tagsDraft.length === 0 && (
+              <span className="text-muted-foreground text-pah-sm">
+                Тегов пока нет.
+              </span>
+            )}
+          </div>
+          <form
+            className="flex gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              addTag();
+            }}
+          >
+            <Input
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              placeholder="Например, работа"
+              aria-label="Новый тег"
+              maxLength={24}
+            />
+            <Button type="submit" variant="outline">
+              Добавить
+            </Button>
+          </form>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTagsTarget(null)}>
+              Отмена
+            </Button>
+            <Button onClick={() => void saveTags()}>Сохранить</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Удаление необратимо, поэтому подтверждение обязательно. */}
+      <Dialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Удалить диалог?</DialogTitle>
+            <DialogDescription>
+              «{deleteTarget?.title ?? ""}» и все сообщения будут удалены
+              безвозвратно. Записи расходов останутся в отчёте.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Отмена
+            </Button>
+            <Button variant="destructive" onClick={() => void confirmDelete()}>
+              Удалить
             </Button>
           </DialogFooter>
         </DialogContent>

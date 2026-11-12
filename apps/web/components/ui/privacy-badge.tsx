@@ -8,7 +8,7 @@
 // Место в архитектуре: примитив представления, используется в сообщениях чата
 // и в списке провайдеров. Не принимает решений о маршрутизации — только
 // отображает уже сохранённый факт (`messages.protection.mode`).
-import { Cloud, Shield, ShieldCheck } from "lucide-react";
+import { Cloud, Shield, ShieldCheck, Unlock } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -20,7 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 
 /** Режим обработки запроса. */
-export type PrivacyMode = "cloud" | "hybrid" | "local";
+export type PrivacyMode = "direct" | "cloud" | "hybrid" | "local";
 
 interface PrivacyBadgeProps {
   /** Где обрабатывался запрос. */
@@ -38,6 +38,12 @@ const MODE_META: Record<
   PrivacyMode,
   { text: string; tooltip: string; icon: typeof Cloud }
 > = {
+  direct: {
+    text: "Прямой доступ",
+    tooltip:
+      "Локальные проверки отключены: текст ушёл провайдеру как есть. Так стоит делать только там, где нет чувствительных данных.",
+    icon: Unlock,
+  },
   cloud: {
     text: "Облако",
     tooltip:
@@ -73,8 +79,10 @@ export function PrivacyBadge({
   const meta = MODE_META[mode];
   const Icon = meta.icon;
   // Локальный режим и гибрид защищают данные сильнее облака, поэтому
-  // используют зелёный акцент; облако остаётся нейтральным.
-  const isProtected = mode !== "cloud";
+  // используют зелёный акцент; облако остаётся нейтральным, а «прямой доступ»
+  // намеренно не зелёный: отсутствие проверок — не защита.
+  const isProtected = mode === "hybrid" || mode === "local";
+  const isDirect = mode === "direct";
   const tooltip =
     mode === "hybrid" && restored
       ? `${meta.tooltip} Ответ восстановлен локально и не отправлялся обратно.`
@@ -90,6 +98,8 @@ export function PrivacyBadge({
               "cursor-help gap-1 font-medium",
               isProtected &&
                 "bg-privacy-badge text-privacy-badge-foreground hover:bg-privacy-badge/90",
+              isDirect &&
+                "border-warning/50 bg-warning/10 text-warning hover:bg-warning/15",
               size === "sm" && "px-1.5 py-0 text-pah-xs",
               className,
             )}

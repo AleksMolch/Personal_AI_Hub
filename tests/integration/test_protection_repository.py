@@ -321,6 +321,7 @@ async def test_capabilities_reports_protection_flag(
     assert disabled["protection"]["enabled"] is False
     assert set(disabled["protection"]["modes"]) == {
         "cloud_controlled",
+        "direct_cloud",
         "protected_hybrid",
         "local_only",
     }

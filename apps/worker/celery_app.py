@@ -8,6 +8,7 @@ from __future__ import annotations
 import sys
 
 from celery import Celery, signals
+from celery.schedules import crontab
 from personal_hub.config import get_settings
 from personal_hub.logging_setup import apply_json_handler, configure_logging
 
@@ -54,6 +55,12 @@ app.conf.update(
         "reconcile-every-minute": {
             "task": "worker.reconcile",
             "schedule": 60.0,
+        },
+        # Политика хранения (ADR-0008): раз в сутки, чтобы не гонять тяжёлые
+        # удаления каждую минуту.
+        "retention-daily": {
+            "task": "worker.retention",
+            "schedule": crontab(hour=3, minute=0),
         },
     },
 )

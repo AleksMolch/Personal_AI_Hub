@@ -64,6 +64,11 @@ async def capabilities() -> dict[str, object]:
             # нужен тестам/клиентам, но UI показывает переключатель только при
             # enabled=true.
             "modes": [mode.value for mode in ProtectionMode],
+            # Режим для новых диалогов (ADR-0008): UI берёт его как начальное
+            # значение селектора, а сервер применяет при создании диалога.
+            "default_mode": settings.default_protection_mode,
+            # Предупреждения облака: клиент спрашивает, показывать ли их.
+            "cloud_scan": settings.cloud_scan_enabled,
         },
     }
 
