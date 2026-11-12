@@ -506,8 +506,10 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ capabilities }),
     }),
-  conversations: (archived = false) =>
-    request<Conversation[]>(`/api/v1/conversations?archived=${archived}`),
+  conversations: (archived = false, q?: string, limit = 50, offset = 0) =>
+    request<Conversation[]>(
+      `/api/v1/conversations?archived=${archived}&q=${encodeURIComponent(q ?? "")}&limit=${limit}&offset=${offset}`,
+    ),
   createConversation: (input: { title?: string; model_profile_id?: string }) =>
     request<Conversation>("/api/v1/conversations", {
       method: "POST",

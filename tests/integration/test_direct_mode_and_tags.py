@@ -382,3 +382,31 @@ async def test_edit_and_regenerate_message(client: AsyncClient, mock_provider):
     )
     assert len(detail2.json()["messages"]) == 2
     assert detail2.json()["messages"][0]["content"] == "Исправленный вопрос"
+
+
+@pytest.mark.asyncio
+async def test_list_conversations_search_and_pagination(
+    client: AsyncClient, mock_provider
+):
+    """Список ищет по содержимому сообщений и поддерживает пагинацию."""
+    store: list[dict] = []
+    mock_provider.spec["POST /chat/completions"] = _capture_sse(store, "ok")
+    headers, conversation_id, model_id = await _setup(client, mock_provider)
+
+    created = await client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        json={"content": "уникальное-слово-zzz", "model_profile_id": model_id},
+        headers=headers,
+    )
+    await _collect_events(client, created.json()["generation_id"], headers)
+
+    found = await client.get(
+        "/api/v1/conversations?q=уникальное-слово-zzz", headers=headers
+    )
+    assert any(c["id"] == conversation_id for c in found.json())
+
+    page = await client.get(
+        "/api/v1/conversations?limit=1&offset=0", headers=headers
+    )
+    assert len(page.json()) == 1
+    assert int(page.headers["x-total-count"]) >= 1

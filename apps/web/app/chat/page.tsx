@@ -82,6 +82,9 @@ type SendOptions = {
   maxTokens?: number;
 };
 
+/** Размер страницы списка диалогов (пагинация на сервере). */
+const PAGE_SIZE = 50;
+
 /**
  * Режимы обработки данных теперь выбираются внутри композера
  * (`components/chat/chat-input.tsx`), поэтому дублирующий список здесь не нужен.
@@ -155,6 +158,9 @@ export default function ChatPage() {
   const [systemInstruction, setSystemInstruction] = useState("");
   const [sysPromptOpen, setSysPromptOpen] = useState(false);
   const [sysPromptDraft, setSysPromptDraft] = useState("");
+  // Пагинация списка диалогов.
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   // Редактирование сообщения пользователя (ветвление).
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
@@ -215,6 +221,22 @@ export default function ChatPage() {
     void loadAll();
     return () => esRef.current?.close();
   }, [loadAll, router]);
+
+  // Поиск по диалогам идёт на сервере (по названию, тегам и содержимому),
+  // поэтому меняем список с дебаунсом. Первый прогон пропускаем: список уже
+  // загружен loadAll. Архив переключается явным вызовом reloadConversations.
+  const skipSearchRef = useRef(true);
+  useEffect(() => {
+    if (skipSearchRef.current) {
+      skipSearchRef.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void reloadConversations(showArchived);
+    }, 300);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- поиск и архив
+  }, [filter]);
 
   /** Открывает диалог и загружает его сообщения. */
   async function openConversation(id: string) {
@@ -705,14 +727,35 @@ export default function ChatPage() {
     return context?.dropped ?? 0;
   }, [messages]);
 
-  /** Загружает список диалогов с учётом архива. */
-  async function reloadConversations(archived: boolean) {
+  /** Загружает первую страницу диалогов (сброс списка и флага «ещё»). */
+  async function reloadConversations(archived: boolean, q = filter) {
     try {
-      const list = await api.conversations(archived);
+      const list = await api.conversations(archived, q, PAGE_SIZE, 0);
       setConversations(list);
       setShowArchived(archived);
+      setHasMore(list.length === PAGE_SIZE);
     } catch {
       setError("Не удалось загрузить диалоги.");
+    }
+  }
+
+  /** Догружает следующую страницу диалогов (без сброса текущего списка). */
+  async function loadMoreConversations() {
+    if (loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const more = await api.conversations(
+        showArchived,
+        filter,
+        PAGE_SIZE,
+        conversations.length,
+      );
+      setConversations((c) => [...c, ...more]);
+      setHasMore(more.length === PAGE_SIZE);
+    } catch {
+      setError("Не удалось загрузить диалоги.");
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -1066,6 +1109,18 @@ export default function ChatPage() {
                 {filteredConversations.length} из {conversations.length}
               </span>
             </div>
+
+            {hasMore && !loading && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground h-7 w-full text-pah-xs"
+                onClick={() => void loadMoreConversations()}
+                disabled={loadingMore}
+              >
+                {loadingMore ? "Загрузка…" : "Показать ещё"}
+              </Button>
+            )}
 
             {loading ? (
               <div className="space-y-2">

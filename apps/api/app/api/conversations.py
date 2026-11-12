@@ -12,7 +12,7 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from personal_hub.config import get_settings
 from personal_hub.db.engine import get_session
 from personal_hub.models import (
@@ -49,7 +49,7 @@ from personal_hub.websearch.service import (
     format_search_warnings,
     get_web_search_provider,
 )
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import Text, and_, delete, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.billing import check_and_reserve, estimate_units, get_latest_price
@@ -132,16 +132,49 @@ def _connection_for(provider: ProviderCredential) -> ProviderConnection:
 
 @router.get("", response_model=list[ConversationOut])
 async def list_conversations(
+    response: Response,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
     archived: bool = False,
+    q: str | None = None,
+    limit: int = 200,
+    offset: int = 0,
 ) -> list[ConversationOut]:
-    stmt = (
-        select(Conversation)
-        .where(Conversation.user_id == user.id, Conversation.archived == archived)
-        .order_by(Conversation.updated_at.desc())
+    """Список диалогов с поиском по названию/тегам/содержимому и пагинацией.
+
+    `q` ищет и в заголовке, и в тегах, и в тексте сообщений (ILIKE); `limit`/
+    `offset` разбивают длинный список на страницы. Итоговое число строк
+    возвращается в заголовке `X-Total-Count`.
+    """
+    limit = min(max(limit, 1), 500)
+    offset = max(offset, 0)
+
+    stmt = select(Conversation).where(
+        Conversation.user_id == user.id, Conversation.archived == archived
     )
-    result = await session.execute(stmt)
+    query = (q or "").strip()
+    if query:
+        pattern = f"%{query}%"
+        message_match = exists().where(
+            Message.conversation_id == Conversation.id,
+            Message.content.ilike(pattern),
+        )
+        tags_match = func.cast(Conversation.tags, Text).ilike(pattern)
+        stmt = stmt.where(
+            or_(
+                Conversation.title.ilike(pattern),
+                tags_match,
+                message_match,
+            )
+        )
+
+    total = await session.scalar(
+        select(func.count()).select_from(stmt.subquery())
+    )
+    result = await session.execute(
+        stmt.order_by(Conversation.updated_at.desc()).limit(limit).offset(offset)
+    )
+    response.headers["X-Total-Count"] = str(total or 0)
     return [ConversationOut.model_validate(c) for c in result.scalars().all()]
 
 
