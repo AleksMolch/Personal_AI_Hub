@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from personal_hub.config import get_settings
@@ -19,6 +20,7 @@ from personal_hub.models import (
     Message,
     MessageStatus,
     ModelProfile,
+    ProtectionPreparation,
     ProviderCredential,
     User,
 )
@@ -47,7 +49,7 @@ from personal_hub.websearch.service import (
     format_search_warnings,
     get_web_search_provider,
 )
-from sqlalchemy import func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.billing import check_and_reserve, estimate_units, get_latest_price
@@ -62,6 +64,7 @@ from app.schemas import (
     MessageCreate,
     MessageCreateResponse,
     MessageOut,
+    MessageUpdate,
 )
 
 logger = logging.getLogger("api.conversations")
@@ -237,6 +240,11 @@ async def create_message(
                 "рассуждений.",
             )
         reasoning_depth = ReasoningDepth(payload.reasoning_depth)
+
+    # Параметры генерации: сохраняем в снимке и передаём провайдеру. Они
+    # не влияют на резервирование (оценка строится по контексту и лимиту ответа).
+    temperature = payload.temperature
+    max_tokens = payload.max_tokens
 
     # Цена нужна для резервирования, но не для самой генерации: модель без
     # цены разрешена (ADR-0007). Тогда стоимость пишется как unknown, а не ноль.
@@ -475,22 +483,229 @@ async def create_message(
         },
     )
 
-    # Сообщение-генерация (ассистент).
-    # reasoning_depth и источники веб-поиска сохраняются в снимке: история
-    # должна объяснять, с какой глубиной и по каким источникам получен ответ,
-    # иначе позднее нельзя обосновать ни его содержание, ни стоимость.
+    generation = await _spawn_generation(
+        session=session,
+        user=user,
+        conversation=conversation,
+        model=model,
+        provider=provider,
+        price=price,
+        chat_messages=chat_messages,
+        system_prompt=system_prompt,
+        reasoning_depth=reasoning_depth,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        estimated_units=estimated_units,
+        cloud_scan=cloud_scan,
+        search_context=search_context,
+        search_warning=search_warning,
+        web_citations=web_citations,
+        preparation=preparation,
+        parent_user_message_id=user_message.id,
+        context_kept=len(kept_history) + 1,
+        context_dropped=window.dropped,
+        context_estimated_tokens=window.estimated_tokens,
+    )
+
+    return MessageCreateResponse(
+        generation_id=generation.id,
+        message=MessageOut.model_validate(generation),
+    )
+
+
+@router.patch(
+    "/{conversation_id}/messages/{message_id}", response_model=MessageOut
+)
+async def update_message(
+    conversation_id,
+    message_id,
+    payload: MessageUpdate,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> MessageOut:
+    """Редактирует сообщение пользователя и обрезает старую ветку после него."""
+    conversation = await _get_owned_conversation(conversation_id, user, session)
+    message = await session.get(Message, message_id)
+    if message is None or message.conversation_id != conversation.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Сообщение не найдено.")
+    if message.role != "user":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Редактировать можно только сообщение пользователя.",
+        )
+
+    # Сообщения после редактируемого принадлежат старой ветке: удаляем их,
+    # чтобы следующая генерация строилась от изменённого вопроса.
+    await session.execute(
+        delete(Message).where(
+            Message.conversation_id == conversation.id,
+            or_(
+                Message.created_at > message.created_at,
+                and_(
+                    Message.created_at == message.created_at,
+                    Message.id > message.id,
+                ),
+            ),
+        )
+    )
+    message.content = payload.content
+    # Контекст изменился: старая подготовка гибрида больше недействительна.
+    conversation.protection_revision += 1
+    await session.commit()
+    await session.refresh(message)
+    return MessageOut.model_validate(message)
+
+
+@router.post(
+    "/{conversation_id}/messages/{message_id}/regenerate",
+    response_model=MessageCreateResponse,
+)
+async def regenerate_message(
+    conversation_id,
+    message_id,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> MessageCreateResponse:
+    """Перегенерирует ответ ассистента для существующего сообщения пользователя."""
+    conversation = await _get_owned_conversation(conversation_id, user, session)
+    user_message = await session.get(Message, message_id)
+    if (
+        user_message is None
+        or user_message.conversation_id != conversation.id
+        or user_message.role != "user"
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Сообщение не найдено.")
+
+    # Обрезаем хвост: старый ответ и последующие сообщения — это предыдущая ветка.
+    await session.execute(
+        delete(Message).where(
+            Message.conversation_id == conversation.id,
+            or_(
+                Message.created_at > user_message.created_at,
+                and_(
+                    Message.created_at == user_message.created_at,
+                    Message.id > user_message.id,
+                ),
+            ),
+        )
+    )
+
+    mode = ProtectionMode(conversation.protection_mode)
+    if mode == ProtectionMode.PROTECTED_HYBRID:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Для перегенерации в гибриде отредактируйте сообщение и отправьте "
+            "заново с подтверждением preview.",
+        )
+
+    model_profile_id = user_message.model_profile_id or conversation.model_profile_id
+    model, provider = await _resolve_model(session, user, model_profile_id)
+    if mode == ProtectionMode.LOCAL_ONLY and not provider.is_local:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Провайдер выбранной модели не помечен как локальный. "
+            "(PROTECTION_LOCAL_PROVIDER_REQUIRED)",
+        )
+
+    price = await get_latest_price(session, model.id)
+    settings = get_settings()
+    history = await load_history(session, conversation.id)
+    window = build_window(history, model=model, settings=settings)
+    kept = history[window.dropped :]
+    # В облачных режимах наружу идёт исходный текст; в гибриде перегенерация
+    # здесь запрещена выше.
+    chat_messages = [
+        ChatMessage(role=m.role, content=m.content) for m in kept
+    ]
+    system_prompt = conversation.system_instruction
+    history_text = "\n".join(
+        (conversation.system_instruction or "") + m.content for m in chat_messages
+    )
+    estimated_units = estimate_units(history_text, model.output_limit, None)
+
+    await record_audit(
+        session,
+        user_id=user.id,
+        conversation_id=conversation.id,
+        action="message_regenerated",
+        details={
+            "mode": mode.value,
+            "revision": conversation.protection_revision,
+            "local_provider": bool(provider.is_local),
+        },
+    )
+
+    generation = await _spawn_generation(
+        session=session,
+        user=user,
+        conversation=conversation,
+        model=model,
+        provider=provider,
+        price=price,
+        chat_messages=chat_messages,
+        system_prompt=system_prompt,
+        reasoning_depth=None,
+        temperature=None,
+        max_tokens=None,
+        estimated_units=estimated_units,
+        cloud_scan=None,
+        search_context="",
+        search_warning=None,
+        web_citations=[],
+        preparation=None,
+        parent_user_message_id=user_message.id,
+        context_kept=len(kept),
+        context_dropped=window.dropped,
+        context_estimated_tokens=window.estimated_tokens,
+    )
+    return MessageCreateResponse(
+        generation_id=generation.id,
+        message=MessageOut.model_validate(generation),
+    )
+
+
+async def _spawn_generation(
+    *,
+    session: AsyncSession,
+    user: User,
+    conversation: Conversation,
+    model: ModelProfile,
+    provider: ProviderCredential,
+    price: Any,
+    chat_messages: list[ChatMessage],
+    system_prompt: str | None,
+    reasoning_depth: ReasoningDepth | None,
+    temperature: float | None,
+    max_tokens: int | None,
+    estimated_units: Any,
+    cloud_scan: dict | None,
+    search_context: str,
+    search_warning: str | None,
+    web_citations: list[WebCitation],
+    preparation: ProtectionPreparation | None,
+    parent_user_message_id: uuid.UUID,
+    context_kept: int,
+    context_dropped: int,
+    context_estimated_tokens: int,
+) -> Message:
+    """Создаёт assistant-генерацию, резервирует бюджет и запускает поток.
+
+    Общий «хвост» для создания сообщения и перегенерации: снимок модели,
+    резервирование до вызова, тело запроса и запуск worker-задачи. Аудит сюда
+    не входит — действие (`message_sent` / `message_regenerated`) записывает
+    вызывающий код.
+    """
     generation = Message(
         conversation_id=conversation.id,
         role="assistant",
         content="",
-        parent_id=user_message.id,
+        parent_id=parent_user_message_id,
         status=MessageStatus.STREAMING.value,
         model_profile_id=model.id,
         model_snapshot={
             "model": model.external_model_id,
             "provider_type": provider.provider_type,
             "display_name": model.display_name,
-            # Честность: без цены стоимость unknown, а не ноль.
             "pricing": {
                 "known": price is not None,
                 "warning": (
@@ -501,14 +716,13 @@ async def create_message(
                 ),
             },
             "reasoning_depth": reasoning_depth.value if reasoning_depth else None,
-            # Окно контекста: сколько истории реально ушло. Нужно, чтобы UI мог
-            # объяснить, почему модель «не помнит» ранние сообщения.
+            "temperature": temperature,
+            "max_tokens": max_tokens,
             "context": {
-                "kept": len(kept_history) + 1,
-                "dropped": window.dropped,
-                "estimated_tokens": window.estimated_tokens,
+                "kept": context_kept,
+                "dropped": context_dropped,
+                "estimated_tokens": context_estimated_tokens,
             },
-            # Предупреждение облачного сканирования (ADR-0008).
             "cloud_scan": cloud_scan,
             "web_search": {
                 "used": bool(search_context),
@@ -529,7 +743,6 @@ async def create_message(
     await session.flush()
 
     # Резервирование (может поднять BudgetExceededError → 402, всё откатывается).
-    # Без цены резервировать нечего: вызов разрешён, но лимит не гарантируется.
     billing = None
     if price is not None:
         billing = await check_and_reserve(
@@ -546,10 +759,11 @@ async def create_message(
         model=model.external_model_id,
         messages=chat_messages,
         system=system_prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
         reasoning_depth=reasoning_depth,
         model_capabilities=list(model.capabilities or []),
     )
-
     _spawn(
         run_generation(
             generation.id,
@@ -560,18 +774,11 @@ async def create_message(
             provider_id=provider.id,
             model_profile_id=model.id,
             billing=billing,
-            # В гибриде ответ придёт с псевдонимами и будет восстановлен локально.
             preparation_id=preparation.id if preparation is not None else None,
-            # Локальная оценка нужна, если провайдер не пришлёт usage
-            # (частый случай у локальных runtime), чтобы расход не потерялся.
             estimated_units=estimated_units,
         )
     )
-
-    return MessageCreateResponse(
-        generation_id=generation.id,
-        message=MessageOut.model_validate(generation),
-    )
+    return generation
 
 
 @router.get("/{conversation_id}/export")

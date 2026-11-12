@@ -25,6 +25,8 @@ interface MessageListProps {
   isStreaming?: boolean;
   /** Повторить генерацию для указанного ответа. */
   onRegenerate?: (messageId: string) => void;
+  /** Редактировать сообщение пользователя (ветвление). */
+  onEdit?: (messageId: string) => void;
   /** Содержимое пустого диалога (приглашение к первому запросу). */
   emptyPlaceholder?: React.ReactNode;
 }
@@ -47,6 +49,7 @@ export function MessageList({
   streamingContent,
   isStreaming,
   onRegenerate,
+  onEdit,
   emptyPlaceholder,
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
@@ -104,8 +107,13 @@ export function MessageList({
                 key={item.id}
                 message={item}
                 onRegenerate={
-                  onRegenerate && !item.isStreaming
+                  onRegenerate && !item.isStreaming && item.role === "assistant"
                     ? () => onRegenerate(item.id)
+                    : undefined
+                }
+                onEdit={
+                  onEdit && !item.isStreaming && item.role === "user"
+                    ? () => onEdit(item.id)
                     : undefined
                 }
               />

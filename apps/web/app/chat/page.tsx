@@ -16,7 +16,7 @@
 // собственному backend, который владеет ключами и вызывает провайдеров.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Menu, MoreHorizontal, Plus, Search, X } from "lucide-react";
+import { Menu, MoreHorizontal, Plus, Search, Settings2, X } from "lucide-react";
 
 import {
   ChatInput,
@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import {
   api,
   Conversation,
@@ -73,6 +74,13 @@ const EXAMPLE_PROMPTS = [
   "Составь план проверки бюджета на месяц",
   "Помоги сформулировать письмо клиенту",
 ];
+
+/** Параметры отправки одного сообщения. */
+type SendOptions = {
+  reasoningDepth?: ReasoningDepth;
+  temperature?: number;
+  maxTokens?: number;
+};
 
 /**
  * Режимы обработки данных теперь выбираются внутри композера
@@ -120,7 +128,7 @@ export default function ChatPage() {
   const [pendingSend, setPendingSend] = useState<{
     conversationId: string;
     text: string;
-    options: { reasoningDepth?: ReasoningDepth };
+    options: SendOptions;
   } | null>(null);
   const [protectionBusy, setProtectionBusy] = useState(false);
 
@@ -130,7 +138,7 @@ export default function ChatPage() {
   const [pendingCloudSend, setPendingCloudSend] = useState<{
     conversationId: string;
     text: string;
-    options: { reasoningDepth?: ReasoningDepth };
+    options: SendOptions;
   } | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -143,6 +151,13 @@ export default function ChatPage() {
   // Открытое меню строки: контролируем явно, чтобы закрыть его ДО открытия
   // диалога. Иначе Radix оставляет меню поверх модального окна.
   const [menuId, setMenuId] = useState<string | null>(null);
+  // Системный промпт диалога (уровень диалога, а не сообщения).
+  const [systemInstruction, setSystemInstruction] = useState("");
+  const [sysPromptOpen, setSysPromptOpen] = useState(false);
+  const [sysPromptDraft, setSysPromptDraft] = useState("");
+  // Редактирование сообщения пользователя (ветвление).
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
 
   /**
    * Загружает диалоги, модели, сводку расходов и записи usage.
@@ -182,6 +197,7 @@ export default function ChatPage() {
         const detail = await api.getConversation(c[0].id);
         setMessages(detail.messages);
         setProtectionMode(detail.protection_mode);
+        setSystemInstruction(detail.system_instruction ?? "");
       }
     } catch {
       setError("Не удалось загрузить данные.");
@@ -209,6 +225,7 @@ export default function ChatPage() {
       const detail = await api.getConversation(id);
       setMessages(detail.messages);
       setProtectionMode(detail.protection_mode);
+      setSystemInstruction(detail.system_instruction ?? "");
     } catch {
       setError("Не удалось открыть диалог.");
     }
@@ -302,10 +319,7 @@ export default function ChatPage() {
    * @param content Текст сообщения.
    * @param options Параметры запроса (глубина рассуждений).
    */
-  async function send(
-    content: string,
-    options: { reasoningDepth?: ReasoningDepth } = {},
-  ) {
+  async function send(content: string, options: SendOptions = {}) {
     const text = content.trim();
     if (!text || streaming) return;
     setError(null);
@@ -473,7 +487,7 @@ export default function ChatPage() {
   async function deliver(
     conversationId: string,
     text: string,
-    options: { reasoningDepth?: ReasoningDepth },
+    options: SendOptions,
     preparationId?: string,
     cloudScanAcknowledged = false,
   ) {
@@ -503,40 +517,10 @@ export default function ChatPage() {
         webSearchAvailable && webSearchEnabled,
         preparationId,
         cloudScanAcknowledged,
+        options.temperature,
+        options.maxTokens,
       );
-      setStreamingId(generation_id);
-      setStreaming(true);
-      setStreamContent("");
-
-      const es = new EventSource(eventSourceUrl(generation_id));
-      esRef.current = es;
-
-      es.addEventListener("content.delta", (ev) => {
-        const data = JSON.parse((ev as MessageEvent).data);
-        setStreamContent((c) => c + (data.delta ?? ""));
-      });
-      es.addEventListener("generation.failed", (ev) => {
-        const data = JSON.parse((ev as MessageEvent).data);
-        setError(data.message ?? "Ошибка генерации.");
-        es.close();
-        setStreaming(false);
-        void refreshCurrent();
-      });
-      es.addEventListener("generation.completed", () => {
-        es.close();
-        setStreaming(false);
-        void refreshCurrent();
-      });
-      es.addEventListener("generation.cancelled", () => {
-        es.close();
-        setStreaming(false);
-        void refreshCurrent();
-      });
-      es.onerror = () => {
-        es.close();
-        setStreaming(false);
-        void refreshCurrent();
-      };
+      subscribeGeneration(generation_id);
     } catch (err) {
       setStreaming(false);
       setError(
@@ -547,10 +531,63 @@ export default function ChatPage() {
     }
   }
 
-  /** Повторяет последний вопрос пользователя (без создания ветки). */
-  function regenerate() {
-    const lastUser = [...messages].reverse().find((m) => m.role === "user");
-    if (lastUser) void send(lastUser.content);
+  /** Подписывается на SSE-поток генерации и ведёт состояние диалога. */
+  function subscribeGeneration(generationId: string) {
+    setStreamingId(generationId);
+    setStreaming(true);
+    setStreamContent("");
+
+    const es = new EventSource(eventSourceUrl(generationId));
+    esRef.current = es;
+
+    es.addEventListener("content.delta", (ev) => {
+      const data = JSON.parse((ev as MessageEvent).data);
+      setStreamContent((c) => c + (data.delta ?? ""));
+    });
+    es.addEventListener("generation.failed", (ev) => {
+      const data = JSON.parse((ev as MessageEvent).data);
+      setError(data.message ?? "Ошибка генерации.");
+      es.close();
+      setStreaming(false);
+      void refreshCurrent();
+    });
+    es.addEventListener("generation.completed", () => {
+      es.close();
+      setStreaming(false);
+      void refreshCurrent();
+    });
+    es.addEventListener("generation.cancelled", () => {
+      es.close();
+      setStreaming(false);
+      void refreshCurrent();
+    });
+    es.onerror = () => {
+      es.close();
+      setStreaming(false);
+      void refreshCurrent();
+    };
+  }
+
+  /** Перегенерирует ответ ассистента для его вопроса (ветвление). */
+  async function regenerate(assistantMessageId: string) {
+    if (streaming) return;
+    const assistant = messages.find((m) => m.id === assistantMessageId);
+    if (!assistant?.parent_id || !currentId) return;
+    setError(null);
+    try {
+      const { generation_id } = await api.regenerateMessage(
+        currentId,
+        assistant.parent_id,
+      );
+      subscribeGeneration(generation_id);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Не удалось перегенерировать ответ.",
+      );
+      void refreshCurrent();
+    }
   }
 
   /** Обогащает сообщения API данными расходов и приводит к виду для UI. */
@@ -782,6 +819,67 @@ export default function ChatPage() {
       }
     } catch {
       setError("Не удалось удалить диалог.");
+    }
+  }
+
+  /** Открывает редактор системного промпта диалога. */
+  function openSystemPrompt() {
+    setSysPromptDraft(systemInstruction);
+    setSysPromptOpen(true);
+  }
+
+  /** Сохраняет системный промпт диалога (пустое значение снимает инструкцию). */
+  async function saveSystemPrompt() {
+    if (!currentId) return;
+    const value = sysPromptDraft.trim();
+    try {
+      const updated = await api.updateConversation(currentId, {
+        system_instruction: value || null,
+      });
+      setConversations((list) =>
+        list.map((c) => (c.id === updated.id ? updated : c)),
+      );
+      setSystemInstruction(value);
+      setSysPromptOpen(false);
+    } catch {
+      setError("Не удалось сохранить инструкцию.");
+    }
+  }
+
+  /** Открывает редактор сообщения пользователя. */
+  function startEdit(messageId: string) {
+    const target = messages.find((m) => m.id === messageId);
+    if (!target) return;
+    setEditingMessageId(messageId);
+    setEditDraft(target.content);
+  }
+
+  /** Сохраняет правку и перегенерирует ответ от этого сообщения. */
+  async function saveEdit() {
+    if (!currentId || !editingMessageId) return;
+    const content = editDraft.trim();
+    const messageId = editingMessageId;
+    if (!content) {
+      setEditingMessageId(null);
+      return;
+    }
+    setEditingMessageId(null);
+    try {
+      await api.editMessage(currentId, messageId, content);
+      // Показать обрезанный диалог, затем перегенерировать ответ.
+      await refreshCurrent();
+      const { generation_id } = await api.regenerateMessage(
+        currentId,
+        messageId,
+      );
+      subscribeGeneration(generation_id);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Не удалось отредактировать сообщение.",
+      );
+      void refreshCurrent();
     }
   }
 
@@ -1171,6 +1269,22 @@ export default function ChatPage() {
             </div>
           )}
 
+          {/* Панель инструментов диалога: компактная строка над перепиской.
+              Системный промпт — настройка уровня диалога, поэтому живёт здесь,
+              а не в композере (у композера — параметры следующего сообщения). */}
+          <div className="flex items-center justify-end border-b px-3 py-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={openSystemPrompt}
+              aria-label="Настройки диалога"
+              title="Системный промпт диалога"
+            >
+              <Settings2 />
+              {systemInstruction ? "Инструкция" : "Настройки"}
+            </Button>
+          </div>
+
           {loading ? (
             <div className="mx-auto w-full max-w-3xl space-y-4 p-6">
               <Skeleton className="h-4 w-1/3" />
@@ -1188,6 +1302,7 @@ export default function ChatPage() {
               streamingContent={streamContent}
               isStreaming={streaming}
               onRegenerate={regenerate}
+              onEdit={startEdit}
               emptyPlaceholder={
                 <EmptyChatState
                   examples={EXAMPLE_PROMPTS}
@@ -1347,6 +1462,67 @@ export default function ChatPage() {
         onSendAnyway={sendCloudAnyway}
         onUseHybrid={() => void switchCloudToHybrid()}
       />
+
+      {/* Системный промпт диалога: применяется ко всем сообщениям этого диалога.
+          Пустое поле снимает инструкцию (system_instruction = null). */}
+      <Dialog
+        open={sysPromptOpen}
+        onOpenChange={(open) => !open && setSysPromptOpen(false)}
+      >
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Инструкция диалога</DialogTitle>
+            <DialogDescription>
+              Задайте роль и правила для модели — они будут действовать на все
+              ответы в этом диалоге. Пустое поле отключает инструкцию.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={sysPromptDraft}
+            onChange={(e) => setSysPromptDraft(e.target.value)}
+            placeholder="Например: отвечай кратко, по-русски, без списков."
+            aria-label="Системный промпт диалога"
+            className="min-h-28"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSysPromptOpen(false)}>
+              Отмена
+            </Button>
+            <Button onClick={() => void saveSystemPrompt()}>Сохранить</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Редактирование сообщения пользователя: сохранение обрезает старую
+          ветку и перегенерирует ответ (ADR-0009, ветвление). */}
+      <Dialog
+        open={editingMessageId !== null}
+        onOpenChange={(open) => !open && setEditingMessageId(null)}
+      >
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Редактировать сообщение</DialogTitle>
+            <DialogDescription>
+              После сохранения ответ и все последующие сообщения этой ветки
+              будут перегенерированы.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={editDraft}
+            onChange={(e) => setEditDraft(e.target.value)}
+            aria-label="Текст сообщения"
+            className="min-h-28"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingMessageId(null)}>
+              Отмена
+            </Button>
+            <Button onClick={() => void saveEdit()}>
+              Сохранить и перегенерировать
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Редактор тегов: до 10 тегов, каждый до 24 символов — те же
           ограничения проверяет сервер. */}

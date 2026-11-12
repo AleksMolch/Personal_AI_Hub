@@ -306,6 +306,21 @@ class MessageCreate(BaseModel):
     # Обосновать ответ результатами веб-поиска. Доступно только если на сервере
     # включён `WEB_SEARCH_ENABLED`; иначе запрос отклоняется с понятной ошибкой.
     web_search: bool = False
+    # Параметры генерации. temperature и max_tokens поддержаны почти всеми
+    # OpenAI-compatible провайдерами; поддержку по имени модели не угадываем —
+    # при несовместимости провайдер вернёт ошибку, которую покажем пользователю.
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    max_tokens: int | None = Field(default=None, ge=1, le=1_000_000)
+
+
+class MessageUpdate(BaseModel):
+    """Редактирование сообщения пользователя (ветвление).
+
+    Редактируется только текст; хвост диалога после этого сообщения считается
+    старой веткой и обрезается сервером, а ревизия защиты растёт.
+    """
+
+    content: str = Field(min_length=1, max_length=200_000)
 
 
 class WebCitationOut(BaseModel):

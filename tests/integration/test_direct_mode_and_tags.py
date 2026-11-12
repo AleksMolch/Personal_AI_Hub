@@ -284,3 +284,101 @@ async def test_preparation_is_rejected_outside_hybrid(
 
     assert resp.status_code == 400
     assert "PROTECTION_PREPARATION_NOT_APPLICABLE" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_temperature_and_max_tokens_are_forwarded(
+    client: AsyncClient, mock_provider
+):
+    """Параметры генерации доезжают до провайдера и пишутся в снимок."""
+    store: list[dict] = []
+    mock_provider.spec["POST /chat/completions"] = _capture_sse(store, "ok")
+    headers, conversation_id, model_id = await _setup(client, mock_provider)
+
+    created = await client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        json={
+            "content": "Привет",
+            "model_profile_id": model_id,
+            "temperature": 0.3,
+            "max_tokens": 42,
+        },
+        headers=headers,
+    )
+    await _collect_events(client, created.json()["generation_id"], headers)
+
+    assert store[-1]["temperature"] == 0.3
+    assert store[-1]["max_tokens"] == 42
+
+    detail = await client.get(
+        f"/api/v1/conversations/{conversation_id}", headers=headers
+    )
+    assistant = detail.json()["messages"][1]
+    assert assistant["model_snapshot"]["temperature"] == 0.3
+    assert assistant["model_snapshot"]["max_tokens"] == 42
+
+
+@pytest.mark.asyncio
+async def test_system_instruction_is_sent(client: AsyncClient, mock_provider):
+    """Системная инструкция диалога попадает первым сообщением в payload."""
+    store: list[dict] = []
+    mock_provider.spec["POST /chat/completions"] = _capture_sse(store, "ok")
+    headers, conversation_id, model_id = await _setup(client, mock_provider)
+
+    await client.patch(
+        f"/api/v1/conversations/{conversation_id}",
+        json={"system_instruction": "Отвечай кратко и по-русски."},
+        headers=headers,
+    )
+    created = await client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        json={"content": "Привет", "model_profile_id": model_id},
+        headers=headers,
+    )
+    await _collect_events(client, created.json()["generation_id"], headers)
+
+    system = store[-1]["messages"][0]
+    assert system["role"] == "system"
+    assert "Отвечай кратко" in system["content"]
+
+
+@pytest.mark.asyncio
+async def test_edit_and_regenerate_message(client: AsyncClient, mock_provider):
+    """Правка вопроса обрезает старую ветку и перегенерирует ответ."""
+    store: list[dict] = []
+    mock_provider.spec["POST /chat/completions"] = _capture_sse(store, "ok")
+    headers, conversation_id, model_id = await _setup(client, mock_provider)
+
+    created = await client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        json={"content": "Первый вопрос", "model_profile_id": model_id},
+        headers=headers,
+    )
+    await _collect_events(client, created.json()["generation_id"], headers)
+
+    detail = await client.get(
+        f"/api/v1/conversations/{conversation_id}", headers=headers
+    )
+    user_id = detail.json()["messages"][0]["id"]
+
+    patched = await client.patch(
+        f"/api/v1/conversations/{conversation_id}/messages/{user_id}",
+        json={"content": "Исправленный вопрос"},
+        headers=headers,
+    )
+    assert patched.status_code == 200
+    assert patched.json()["content"] == "Исправленный вопрос"
+
+    regenerated = await client.post(
+        f"/api/v1/conversations/{conversation_id}/messages/{user_id}/regenerate",
+        headers=headers,
+    )
+    assert regenerated.status_code == 200
+    await _collect_events(client, regenerated.json()["generation_id"], headers)
+
+    assert store[-1]["messages"][-1]["content"] == "Исправленный вопрос"
+    detail2 = await client.get(
+        f"/api/v1/conversations/{conversation_id}", headers=headers
+    )
+    assert len(detail2.json()["messages"]) == 2
+    assert detail2.json()["messages"][0]["content"] == "Исправленный вопрос"

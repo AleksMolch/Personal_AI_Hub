@@ -14,7 +14,7 @@
 // стриминга aria-live выключен (иначе скринридер зачитывает каждый токен), а
 // после завершения переключается в "polite" — тогда ответ озвучивается один раз.
 import { useState } from "react";
-import { Copy, RotateCcw } from "lucide-react";
+import { Copy, Pencil, RotateCcw } from "lucide-react";
 
 import { MarkdownRenderer } from "@/components/chat/markdown-renderer";
 import { WebSources, type WebSource } from "@/components/chat/web-sources";
@@ -65,6 +65,8 @@ interface ChatMessageProps {
   message: ChatMessageView;
   /** Повторить генерацию (доступно только для ответов ассистента). */
   onRegenerate?: () => void;
+  /** Редактировать сообщение пользователя (ветвление). */
+  onEdit?: () => void;
   /** Дополнительные классы. */
   className?: string;
 }
@@ -78,6 +80,7 @@ interface ChatMessageProps {
 export function ChatMessage({
   message,
   onRegenerate,
+  onEdit,
   className,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
@@ -187,26 +190,43 @@ export function ChatMessage({
           )}
         </div>
 
-        {!isUser && !message.isStreaming && (
+        {!message.isStreaming && (
           <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             <Button
               size="icon-sm"
               variant="ghost"
               onClick={copy}
-              aria-label={copied ? "Скопировано" : "Скопировать ответ"}
+              aria-label={
+                copied
+                  ? "Скопировано"
+                  : isUser
+                    ? "Скопировать сообщение"
+                    : "Скопировать ответ"
+              }
             >
               <Copy />
             </Button>
-            {onRegenerate && (
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                onClick={onRegenerate}
-                aria-label="Повторить генерацию"
-              >
-                <RotateCcw />
-              </Button>
-            )}
+            {isUser
+              ? onEdit && (
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    onClick={onEdit}
+                    aria-label="Редактировать сообщение"
+                  >
+                    <Pencil />
+                  </Button>
+                )
+              : onRegenerate && (
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    onClick={onRegenerate}
+                    aria-label="Повторить генерацию"
+                  >
+                    <RotateCcw />
+                  </Button>
+                )}
           </div>
         )}
       </div>

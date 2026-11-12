@@ -515,10 +515,15 @@ export const api = {
     }),
   getConversation: (id: string) =>
     request<ConversationDetail>(`/api/v1/conversations/${id}`),
-  /** Переименование, теги и архивирование диалога. */
+  /** Переименование, теги, архивирование и системная инструкция диалога. */
   updateConversation: (
     id: string,
-    patch: { title?: string; tags?: string[]; archived?: boolean },
+    patch: {
+      title?: string;
+      tags?: string[];
+      archived?: boolean;
+      system_instruction?: string | null;
+    },
   ) =>
     request<Conversation>(`/api/v1/conversations/${id}`, {
       method: "PATCH",
@@ -548,6 +553,10 @@ export const api = {
     preparationId?: string,
     /** Пользователь подтвердил отправку после предупреждения облака. */
     cloudScanAcknowledged?: boolean,
+    /** Температура генерации (0..2). */
+    temperature?: number,
+    /** Лимит выходных токенов. */
+    maxTokens?: number,
   ) =>
     request<{ generation_id: string }>(
       `/api/v1/conversations/${conversationId}/messages`,
@@ -560,8 +569,25 @@ export const api = {
           web_search: webSearch ?? false,
           preparation_id: preparationId ?? null,
           cloud_scan_acknowledged: cloudScanAcknowledged ?? false,
+          temperature: temperature ?? null,
+          max_tokens: maxTokens ?? null,
         }),
       },
+    ),
+  /** Редактирует сообщение пользователя; сервер обрезает старую ветку после него. */
+  editMessage: (conversationId: string, messageId: string, content: string) =>
+    request<Message>(
+      `/api/v1/conversations/${conversationId}/messages/${messageId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ content }),
+      },
+    ),
+  /** Перегенерирует ответ ассистента для существующего сообщения пользователя. */
+  regenerateMessage: (conversationId: string, userMessageId: string) =>
+    request<{ generation_id: string }>(
+      `/api/v1/conversations/${conversationId}/messages/${userMessageId}/regenerate`,
+      { method: "POST", body: JSON.stringify({}) },
     ),
   /** Переключает режим защиты диалога; смена режима увеличивает ревизию. */
   setProtectionMode: (conversationId: string, mode: string) =>

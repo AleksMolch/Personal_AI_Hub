@@ -15,12 +15,21 @@
 // сервер подтвердил готовность (capabilities.protection.enabled).
 import { useId, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { Brain, Globe, Paperclip, Send, Shield, Square } from "lucide-react";
+import {
+  Brain,
+  Globe,
+  Paperclip,
+  Send,
+  Shield,
+  SlidersHorizontal,
+  Square,
+} from "lucide-react";
 
 import { ModelPricingWarning } from "@/components/ui/model-pricing-warning";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverContent,
@@ -82,7 +91,11 @@ interface ChatInputProps {
   /** Отправка сообщения с выбранными параметрами. */
   onSend: (
     message: string,
-    options: { reasoningDepth?: ReasoningDepth },
+    options: {
+      reasoningDepth?: ReasoningDepth;
+      temperature?: number;
+      maxTokens?: number;
+    },
   ) => void; /** Остановить текущую генерацию. */
   onStop?: () => void;
   /** Идёт ли потоковый ответ. */
@@ -172,6 +185,10 @@ export function ChatInput({
   const [reasoningDepth, setReasoningDepth] =
     useState<ReasoningDepth>("medium");
   const [modeOpen, setModeOpen] = useState(false);
+  // Параметры генерации: пустая строка означает «значение по умолчанию», чтобы
+  // не отправлять температуру/лимит, которые пользователь не задавал.
+  const [temperature, setTemperature] = useState("");
+  const [maxTokens, setMaxTokens] = useState("");
   // Высота поля ввода: null — значение по умолчанию (min-h-20). Тянется за
   // верхнюю грань панели, чтобы увеличить область промпта.
   const [composerHeight, setComposerHeight] = useState<number | null>(null);
@@ -201,10 +218,16 @@ export function ChatInput({
   /** Отправляет сообщение и очищает поле ввода. */
   function submit() {
     if (!canSend) return;
+    const parsedTemperature =
+      temperature.trim() === "" ? undefined : Number(temperature);
+    const parsedMaxTokens =
+      maxTokens.trim() === "" ? undefined : Number(maxTokens);
     onSend(value, {
       // Глубину передаём только для моделей, которые её поддерживают,
       // иначе backend справедливо отклонит параметр.
       reasoningDepth: selected?.supportsReasoning ? reasoningDepth : undefined,
+      temperature: parsedTemperature,
+      maxTokens: parsedMaxTokens,
     });
     onValueChange("");
   }
@@ -351,7 +374,6 @@ export function ChatInput({
               </SelectContent>
             </Select>
           </div>
-
           {/* Селектор глубины показываем только там, где модель это умеет:
               иначе тумблер был бы декоративным. */}
           {selected?.supportsReasoning && (
@@ -411,10 +433,69 @@ export function ChatInput({
               </PopoverContent>
             </Popover>
           )}
-
+          {/* Параметры генерации: температура и лимит ответа. Пустое поле
+              означает «значение по умолчанию» — параметр не отправляется. */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                aria-label="Параметры генерации"
+                title="Температура и лимит ответа"
+              >
+                <SlidersHorizontal />
+                Параметры
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 shadow-lg" align="start">
+              <div className="space-y-3">
+                <div>
+                  <h4 className="text-pah-base font-medium">
+                    Параметры генерации
+                  </h4>
+                  <p className="text-muted-foreground text-pah-sm">
+                    Действуют на следующее сообщение.
+                  </p>
+                </div>
+                <Separator />
+                <div className="space-y-2">
+                  <Label htmlFor="chat-temperature" className="text-pah-sm">
+                    Температура (0–2)
+                  </Label>
+                  <Input
+                    id="chat-temperature"
+                    type="number"
+                    min={0}
+                    max={2}
+                    step={0.1}
+                    value={temperature}
+                    onChange={(e) => setTemperature(e.target.value)}
+                    placeholder="по умолчанию"
+                    inputMode="decimal"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="chat-max-tokens" className="text-pah-sm">
+                    Лимит ответа (токенов)
+                  </Label>
+                  <Input
+                    id="chat-max-tokens"
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={maxTokens}
+                    onChange={(e) => setMaxTokens(e.target.value)}
+                    placeholder="по умолчанию"
+                    inputMode="numeric"
+                  />
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
           {/* Режим обработки данных: выпадающее меню, как у глубины
               рассуждений. Полные названия и подсказки — внутри меню, чтобы
-              строка оставалась однострочной. */}
+              строка оставалась однострочной. */}{" "}
           {protectionAvailable && onProtectionModeChange && (
             <Popover open={modeOpen} onOpenChange={setModeOpen}>
               <PopoverTrigger asChild>
@@ -477,7 +558,6 @@ export function ChatInput({
               </PopoverContent>
             </Popover>
           )}
-
           {/* Веб-доступ: показываем только если поиск включён на сервере.
               Один запрос — максимум один поиск, поэтому это не «агент», а
               разовое обоснование ответа источниками. */}
@@ -508,7 +588,6 @@ export function ChatInput({
               </Label>
             </div>
           )}
-
           {remainingBudget?.daily && (
             <p className="text-muted-foreground ml-auto shrink-0 text-pah-sm whitespace-nowrap">
               Осталось сегодня: {remainingBudget.daily}{" "}
