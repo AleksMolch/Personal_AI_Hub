@@ -113,7 +113,8 @@ export function OnboardingWizard({
           </DialogTitle>
           <DialogDescription id="onboarding-description">
             Настроим платформу за несколько шагов. Ключи хранятся только у вас и
-            шифруются на сервере.
+            шифруются на сервере. Краткая инструкция — в репозитории, файл{" "}
+            <code>docs/QUICK_START_USER_RU.md</code>.
           </DialogDescription>
         </DialogHeader>
 

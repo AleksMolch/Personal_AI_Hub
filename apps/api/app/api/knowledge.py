@@ -26,6 +26,7 @@ from personal_hub.models import (
 )
 from personal_hub.providers.base import ChatMessage, ChatRequest, ProviderConnection
 from personal_hub.providers.registry import get_adapter
+from personal_hub.retrieval import hybrid_rerank
 from personal_hub.security.crypto import get_cipher
 from personal_hub.vectorstore import get_vector_store
 from sqlalchemy import select
@@ -305,22 +306,35 @@ async def query_knowledge_base(
     )
     query_vector = result.vectors[0]
 
+    # Извлекаем кандидатов с запасом (fetch_factor), чтобы гибридный rerank мог
+    # поднять чанки с точным лексическим совпадением, которые слабо матчатся по
+    # вектору. Затем оставляем top_k.
+    fetch_count = max(payload.top_k * 3, 10)
     hits = await get_vector_store().search(
-        collection_name(kb.id, kb.embedding_version), query_vector, payload.top_k
+        collection_name(kb.id, kb.embedding_version), query_vector, fetch_count
     )
 
-    citations: list[Citation] = []
+    items: list[tuple[str, str, float]] = []
     for hit in hits:
+        items.append((hit.id, await _chunk_text(session, hit.id), hit.score))
+    reranked = hybrid_rerank(payload.text, items, payload.top_k)
+    hit_by_id = {hit.id: hit for hit in hits}
+
+    citations: list[Citation] = []
+    for item_id, text in reranked:
+        hit = hit_by_id[item_id]
+        # Порог релевантности остаётся плотным (cosine): он отделяет «похожий
+        # мусор» от реального совпадения, а порядок/отбор улучшает RRF.
         if hit.score < MIN_RELEVANCE:
             continue
         document_id = hit.payload.get("document_id") or ""
         document = await session.get(Document, uuid.UUID(document_id)) if document_id else None
         citations.append(
             Citation(
-                chunk_id=hit.id,
+                chunk_id=item_id,
                 document_id=document_id,
                 document_title=document.title if document else "—",
-                text=await _chunk_text(session, hit.id),
+                text=text,
                 page=hit.payload.get("page"),
                 score=hit.score,
             )
