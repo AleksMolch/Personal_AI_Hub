@@ -365,6 +365,30 @@ class MessageCreateResponse(BaseModel):
     message: MessageOut
 
 
+# ---- Сравнение моделей -----------------------------------------------------
+class ComparisonRequest(BaseModel):
+    """Сравнение двух моделей на одном промпте."""
+
+    prompt: str = Field(min_length=1, max_length=200_000)
+    model_profile_ids: list[uuid.UUID] = Field(min_length=2, max_length=2)
+    system: str | None = None
+
+
+class ComparisonItem(BaseModel):
+    """Результат одной модели в сравнении."""
+
+    model_profile_id: uuid.UUID
+    display_name: str
+    content: str
+    usage: dict | None = None
+
+
+class ComparisonResult(BaseModel):
+    """Результат сравнения: по одному ответу на модель."""
+
+    results: list[ComparisonItem]
+
+
 # ---- Библиотека промптов ---------------------------------------------------
 class PromptTemplateCreate(BaseModel):
     """Создание шаблона промпта."""

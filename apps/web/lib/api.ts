@@ -264,6 +264,19 @@ export interface PromptTemplate {
   updated_at: string;
 }
 
+/** Ответ одной модели в сравнении side-by-side. */
+export interface ComparisonItem {
+  model_profile_id: string;
+  display_name: string;
+  content: string;
+  usage?: Record<string, unknown>;
+}
+
+/** Результат сравнения моделей. */
+export interface ComparisonResult {
+  results: ComparisonItem[];
+}
+
 export interface ModelProfile {
   id: string;
   external_model_id: string;
@@ -625,6 +638,16 @@ export const api = {
     }),
   deletePrompt: (id: string) =>
     request<void>(`/api/v1/prompts/${id}`, { method: "DELETE" }),
+  /** Сравнивает две модели на одном промпте (оба вызова тарифицируются). */
+  compareModels: (input: {
+    prompt: string;
+    model_profile_ids: string[];
+    system?: string;
+  }) =>
+    request<ComparisonResult>("/api/v1/comparisons", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   /** Готовит sanitized-контекст и показывает preview (ничего не отправляет). */
   prepareProtection: (
     conversationId: string,

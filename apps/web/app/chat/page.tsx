@@ -16,7 +16,15 @@
 // собственному backend, который владеет ключами и вызывает провайдеров.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Menu, MoreHorizontal, Plus, Search, Settings2, X } from "lucide-react";
+import {
+  Menu,
+  MoreHorizontal,
+  Plus,
+  Scale,
+  Search,
+  Settings2,
+  X,
+} from "lucide-react";
 
 import {
   ChatInput,
@@ -31,6 +39,7 @@ import {
 import { AppHeader } from "@/components/app-header";
 import { MessageList } from "@/components/chat/message-list";
 import type { ChatMessageView } from "@/components/chat/message";
+import { MarkdownRenderer } from "@/components/chat/markdown-renderer";
 import type { WebSource } from "@/components/chat/web-sources";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -65,6 +74,7 @@ import {
   ModelProfile,
   ProtectionPreview,
   PromptTemplate,
+  ComparisonItem,
   UsageRecord,
   UsageSummary,
 } from "@/lib/api";
@@ -166,6 +176,14 @@ export default function ChatPage() {
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [templateTitle, setTemplateTitle] = useState("");
   const [templateContent, setTemplateContent] = useState("");
+  // Сравнение моделей side-by-side.
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [comparePrompt, setComparePrompt] = useState("");
+  const [compareModelA, setCompareModelA] = useState("");
+  const [compareModelB, setCompareModelB] = useState("");
+  const [compareResults, setCompareResults] = useState<ComparisonItem[]>([]);
+  const [compareBusy, setCompareBusy] = useState(false);
+  const [compareError, setCompareError] = useState<string | null>(null);
   // Пагинация списка диалогов.
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -999,6 +1017,28 @@ export default function ChatPage() {
     }
   }
 
+  /** Запускает сравнение двух моделей на одном промпте. */
+  async function runComparison() {
+    const prompt = comparePrompt.trim();
+    if (!prompt || !compareModelA || !compareModelB || compareBusy) return;
+    setCompareBusy(true);
+    setCompareError(null);
+    setCompareResults([]);
+    try {
+      const result = await api.compareModels({
+        prompt,
+        model_profile_ids: [compareModelA, compareModelB],
+      });
+      setCompareResults(result.results);
+    } catch (err) {
+      setCompareError(
+        err instanceof Error ? err.message : "Не удалось выполнить сравнение.",
+      );
+    } finally {
+      setCompareBusy(false);
+    }
+  }
+
   const priceMissing = Boolean(error && error.toLowerCase().includes("цена"));
 
   // Ширина сайдбара: живёт в состоянии и не сохраняется, чтобы при смене окна
@@ -1400,7 +1440,17 @@ export default function ChatPage() {
           {/* Панель инструментов диалога: компактная строка над перепиской.
               Системный промпт — настройка уровня диалога, поэтому живёт здесь,
               а не в композере (у композера — параметры следующего сообщения). */}
-          <div className="flex items-center justify-end border-b px-3 py-1">
+          <div className="flex items-center justify-end gap-1 border-b px-3 py-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCompareOpen(true)}
+              aria-label="Сравнить модели"
+              title="Сравнить две модели на одном промпте"
+            >
+              <Scale />
+              Сравнить
+            </Button>
             <Button
               variant="ghost"
               size="sm"
@@ -1690,6 +1740,113 @@ export default function ChatPage() {
             </Button>
             <Button onClick={() => void confirmSaveTemplate()}>
               Сохранить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Сравнение моделей: один промпт, два ответа. Оба вызова тарифицируются. */}
+      <Dialog
+        open={compareOpen}
+        onOpenChange={(open) => !open && setCompareOpen(false)}
+      >
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Сравнить модели</DialogTitle>
+            <DialogDescription>
+              Один промпт отправится обеим моделям; стоимость каждого ответа
+              учтётся в бюджете.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="compare-prompt" className="text-pah-sm">
+              Промпт
+            </Label>
+            <Textarea
+              id="compare-prompt"
+              value={comparePrompt}
+              onChange={(e) => setComparePrompt(e.target.value)}
+              placeholder="Сравните ответы двух моделей…"
+              className="min-h-20"
+            />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="compare-a" className="text-pah-sm">
+                Модель A
+              </Label>
+              <select
+                id="compare-a"
+                value={compareModelA}
+                onChange={(e) => setCompareModelA(e.target.value)}
+                className="bg-background border-input w-full rounded-md border px-2 py-1.5 text-pah-sm"
+              >
+                <option value="">Выберите модель</option>
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.display_name || m.external_model_id}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="compare-b" className="text-pah-sm">
+                Модель B
+              </Label>
+              <select
+                id="compare-b"
+                value={compareModelB}
+                onChange={(e) => setCompareModelB(e.target.value)}
+                className="bg-background border-input w-full rounded-md border px-2 py-1.5 text-pah-sm"
+              >
+                <option value="">Выберите модель</option>
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.display_name || m.external_model_id}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {compareError && (
+            <p className="text-destructive text-pah-sm" role="alert">
+              {compareError}
+            </p>
+          )}
+
+          {compareResults.length > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {compareResults.map((item) => (
+                <div
+                  key={item.model_profile_id}
+                  className="rounded-md border p-3"
+                >
+                  <div className="text-pah-sm mb-2 font-medium">
+                    {item.display_name}
+                  </div>
+                  <div className="max-h-72 overflow-y-auto text-pah-sm">
+                    <MarkdownRenderer content={item.content} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCompareOpen(false)}>
+              Закрыть
+            </Button>
+            <Button
+              onClick={() => void runComparison()}
+              disabled={
+                compareBusy ||
+                !comparePrompt.trim() ||
+                !compareModelA ||
+                !compareModelB
+              }
+            >
+              {compareBusy ? "Сравнение…" : "Сравнить"}
             </Button>
           </DialogFooter>
         </DialogContent>
