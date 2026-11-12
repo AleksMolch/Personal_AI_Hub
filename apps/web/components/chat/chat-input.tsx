@@ -16,14 +16,19 @@
 import { useId, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import {
+  BookMarked,
   Brain,
   Globe,
   Paperclip,
+  Plus,
   Send,
   Shield,
   SlidersHorizontal,
   Square,
+  Trash2,
 } from "lucide-react";
+
+import type { PromptTemplate } from "@/lib/api";
 
 import { ModelPricingWarning } from "@/components/ui/model-pricing-warning";
 import { Badge } from "@/components/ui/badge";
@@ -124,6 +129,14 @@ interface ChatInputProps {
   onProtectionModeChange?: (mode: string) => void;
   /** Идёт смена режима или подготовка — переключатель блокируется. */
   protectionBusy?: boolean;
+  /** Шаблоны промптов пользователя. */
+  promptTemplates?: PromptTemplate[];
+  /** Вставить шаблон в поле ввода. */
+  onUseTemplate?: (content: string) => void;
+  /** Сохранить текущий текст как шаблон (родитель запрашивает название). */
+  onSaveTemplate?: (content: string) => void;
+  /** Удалить шаблон. */
+  onDeleteTemplate?: (id: string) => void;
 }
 
 /** Режимы обработки данных (ADR-0007/0008). Подписи короткие: все элементы
@@ -181,6 +194,10 @@ export function ChatInput({
   protectionMode = "cloud_controlled",
   onProtectionModeChange,
   protectionBusy = false,
+  promptTemplates,
+  onUseTemplate,
+  onSaveTemplate,
+  onDeleteTemplate,
 }: ChatInputProps) {
   const [reasoningDepth, setReasoningDepth] =
     useState<ReasoningDepth>("medium");
@@ -490,6 +507,75 @@ export function ChatInput({
                     inputMode="numeric"
                   />
                 </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+          {/* Библиотека промптов: вставить сохранённый шаблон, сохранить текущий
+              текст или удалить шаблон. */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                aria-label="Шаблоны промптов"
+                title="Библиотека промптов"
+              >
+                <BookMarked />
+                Шаблоны
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80 shadow-lg" align="start">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-pah-base font-medium">Шаблоны</h4>
+                  {onSaveTemplate && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        if (value.trim()) onSaveTemplate(value);
+                      }}
+                      aria-label="Сохранить текущий текст как шаблон"
+                      title="Сохранить текущий текст как шаблон"
+                    >
+                      <Plus />
+                    </Button>
+                  )}
+                </div>
+                {promptTemplates && promptTemplates.length > 0 ? (
+                  <div className="max-h-64 space-y-0.5 overflow-y-auto">
+                    {promptTemplates.map((template) => (
+                      <div
+                        key={template.id}
+                        className="group flex items-center gap-1"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => onUseTemplate?.(template.content)}
+                          className="text-pah-sm hover:bg-accent min-w-0 flex-1 truncate rounded-md px-2 py-1 text-left"
+                          title={template.content}
+                        >
+                          {template.title}
+                        </button>
+                        {onDeleteTemplate && (
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            onClick={() => onDeleteTemplate(template.id)}
+                            aria-label={`Удалить шаблон ${template.title}`}
+                          >
+                            <Trash2 />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-pah-sm">
+                    Шаблонов пока нет.
+                  </p>
+                )}
               </div>
             </PopoverContent>
           </Popover>

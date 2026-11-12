@@ -253,6 +253,15 @@ export interface ConversationDetail extends Conversation {
   messages: Message[];
 }
 
+/** Сохранённый шаблон промпта (библиотека). */
+export interface PromptTemplate {
+  id: string;
+  title: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ModelProfile {
   id: string;
   external_model_id: string;
@@ -597,6 +606,20 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ protection_mode: mode }),
     }),
+  /** Список шаблонов промптов пользователя. */
+  prompts: () => request<PromptTemplate[]>("/api/v1/prompts"),
+  createPrompt: (input: { title: string; content: string }) =>
+    request<PromptTemplate>("/api/v1/prompts", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updatePrompt: (id: string, input: { title?: string; content?: string }) =>
+    request<PromptTemplate>(`/api/v1/prompts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deletePrompt: (id: string) =>
+    request<void>(`/api/v1/prompts/${id}`, { method: "DELETE" }),
   /** Готовит sanitized-контекст и показывает preview (ничего не отправляет). */
   prepareProtection: (
     conversationId: string,

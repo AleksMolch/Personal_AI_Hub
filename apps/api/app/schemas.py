@@ -347,6 +347,33 @@ class MessageCreateResponse(BaseModel):
     message: MessageOut
 
 
+# ---- Библиотека промптов ---------------------------------------------------
+class PromptTemplateCreate(BaseModel):
+    """Создание шаблона промпта."""
+
+    title: str = Field(min_length=1, max_length=120)
+    content: str = Field(min_length=1, max_length=50_000)
+
+
+class PromptTemplateUpdate(BaseModel):
+    """Изменение шаблона промпта (поля опциональны)."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=120)
+    content: str | None = Field(default=None, min_length=1, max_length=50_000)
+
+
+class PromptTemplateOut(BaseModel):
+    """Шаблон промпта для клиента."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    title: str
+    content: str
+    created_at: datetime
+    updated_at: datetime
+
+
 # ---- Budgets / Usage / Prices ----------------------------------------------
 # Decimal сериализуется в JSON-строку (без потери точности).
 

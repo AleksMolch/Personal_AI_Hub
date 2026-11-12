@@ -209,6 +209,25 @@ class Message(Base, TimestampMixin):
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
+class PromptTemplate(Base, TimestampMixin):
+    """Сохранённый пользователем шаблон промпта (библиотека).
+
+    Шаблон — это текст, который вставляется в поле ввода чата. Персональный:
+    принадлежит пользователю, другие пользователи его не видят.
+    """
+
+    __tablename__ = "prompt_templates"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class PriceSnapshot(Base, TimestampMixin):
     """Версионированная цена модели (за 1M токенов).
 

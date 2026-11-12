@@ -52,6 +52,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -63,6 +64,7 @@ import {
   Message,
   ModelProfile,
   ProtectionPreview,
+  PromptTemplate,
   UsageRecord,
   UsageSummary,
 } from "@/lib/api";
@@ -158,6 +160,11 @@ export default function ChatPage() {
   const [systemInstruction, setSystemInstruction] = useState("");
   const [sysPromptOpen, setSysPromptOpen] = useState(false);
   const [sysPromptDraft, setSysPromptDraft] = useState("");
+  // Библиотека промптов.
+  const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [templateTitle, setTemplateTitle] = useState("");
+  const [templateContent, setTemplateContent] = useState("");
   // Пагинация списка диалогов.
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -171,7 +178,7 @@ export default function ChatPage() {
    */
   const loadAll = useCallback(async () => {
     try {
-      const [c, m, s, records, caps] = await Promise.all([
+      const [c, m, s, records, caps, prompts] = await Promise.all([
         api.conversations(),
         api.models(),
         api.usageSummary().catch(() => null),
@@ -179,10 +186,12 @@ export default function ChatPage() {
         api
           .capabilities()
           .catch(() => ({ web_search: false, protection: undefined })),
+        api.prompts().catch(() => [] as PromptTemplate[]),
       ]);
       setConversations(c);
       setModels(m);
       setSummary(s);
+      setPromptTemplates(prompts);
       setWebSearchAvailable(caps.web_search);
       setProtectionAvailable(Boolean(caps.protection?.enabled));
       setCloudScanEnabled(Boolean(caps.protection?.cloud_scan));
@@ -237,6 +246,30 @@ export default function ChatPage() {
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- поиск и архив
   }, [filter]);
+
+  // Горячие клавиши: Escape останавливает генерацию, `/` фокусирует поле ввода
+  // (только когда фокус не в другом поле ввода/редакторе).
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const isTyping =
+        target &&
+        (target.tagName === "TEXTAREA" ||
+          target.tagName === "INPUT" ||
+          target.isContentEditable);
+      if (event.key === "Escape" && streaming) {
+        stopStreaming();
+        return;
+      }
+      if (event.key === "/" && !isTyping) {
+        event.preventDefault();
+        document.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- горячие клавиши
+  }, [streaming]);
 
   /** Открывает диалог и загружает его сообщения. */
   async function openConversation(id: string) {
@@ -926,6 +959,44 @@ export default function ChatPage() {
     }
   }
 
+  /** Вставляет шаблон в поле ввода. */
+  function useTemplate(content: string) {
+    setDraft(content);
+  }
+
+  /** Открывает диалог сохранения текущего текста как шаблона. */
+  function openSaveTemplate(content: string) {
+    setTemplateContent(content);
+    setTemplateTitle("");
+    setSaveTemplateOpen(true);
+  }
+
+  /** Сохраняет шаблон и обновляет список. */
+  async function confirmSaveTemplate() {
+    const title = templateTitle.trim();
+    if (!title || !templateContent) return;
+    try {
+      const created = await api.createPrompt({
+        title,
+        content: templateContent,
+      });
+      setPromptTemplates((t) => [created, ...t]);
+      setSaveTemplateOpen(false);
+    } catch {
+      setError("Не удалось сохранить шаблон.");
+    }
+  }
+
+  /** Удаляет шаблон. */
+  async function deleteTemplate(id: string) {
+    try {
+      await api.deletePrompt(id);
+      setPromptTemplates((t) => t.filter((x) => x.id !== id));
+    } catch {
+      setError("Не удалось удалить шаблон.");
+    }
+  }
+
   const priceMissing = Boolean(error && error.toLowerCase().includes("цена"));
 
   // Ширина сайдбара: живёт в состоянии и не сохраняется, чтобы при смене окна
@@ -1419,6 +1490,10 @@ export default function ChatPage() {
             protectionMode={protectionMode}
             onProtectionModeChange={(mode) => void changeProtectionMode(mode)}
             protectionBusy={protectionBusy}
+            promptTemplates={promptTemplates}
+            onUseTemplate={useTemplate}
+            onSaveTemplate={openSaveTemplate}
+            onDeleteTemplate={(id) => void deleteTemplate(id)}
             remainingBudget={
               summary
                 ? {
@@ -1574,6 +1649,45 @@ export default function ChatPage() {
             </Button>
             <Button onClick={() => void saveEdit()}>
               Сохранить и перегенерировать
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Сохранение текущего текста как шаблона промпта. */}
+      <Dialog
+        open={saveTemplateOpen}
+        onOpenChange={(open) => !open && setSaveTemplateOpen(false)}
+      >
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Сохранить шаблон</DialogTitle>
+            <DialogDescription>
+              Шаблон появится в библиотеке промптов и его можно будет вставить в
+              любое поле ввода.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="prompt-template-title" className="text-pah-sm">
+              Название
+            </Label>
+            <Input
+              id="prompt-template-title"
+              value={templateTitle}
+              onChange={(e) => setTemplateTitle(e.target.value)}
+              placeholder="Например, Письмо клиенту"
+              maxLength={120}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setSaveTemplateOpen(false)}
+            >
+              Отмена
+            </Button>
+            <Button onClick={() => void confirmSaveTemplate()}>
+              Сохранить
             </Button>
           </DialogFooter>
         </DialogContent>
