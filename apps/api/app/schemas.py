@@ -389,6 +389,32 @@ class ComparisonResult(BaseModel):
     results: list[ComparisonItem]
 
 
+class AskRequest(BaseModel):
+    """Сквозной вопрос по базе знаний и/или таблице."""
+
+    question: str = Field(min_length=1, max_length=100_000)
+    kb_id: uuid.UUID | None = None
+    table_asset_id: uuid.UUID | None = None
+    chat_model_profile_id: uuid.UUID | None = None
+
+
+class TableAnswer(BaseModel):
+    """Результат SQL-анализа таблицы внутри сквозного ответа."""
+
+    columns: list[str]
+    rows: list[list]
+    sql: str
+
+
+class AskResult(BaseModel):
+    """Сквозной ответ: синтез по документам и таблице."""
+
+    answer: str | None
+    answer_skipped_reason: str | None = None
+    citations: list[Citation] = Field(default_factory=list)
+    table: TableAnswer | None = None
+
+
 # ---- Библиотека промптов ---------------------------------------------------
 class PromptTemplateCreate(BaseModel):
     """Создание шаблона промпта."""

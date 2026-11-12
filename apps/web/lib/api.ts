@@ -378,6 +378,21 @@ export interface QueryResult {
   citations: Citation[];
 }
 
+/** Результат SQL-анализа таблицы внутри сквозного ответа. */
+export interface AskTableAnswer {
+  columns: string[];
+  rows: unknown[][];
+  sql: string;
+}
+
+/** Сквозной ответ по документам и/или таблице. */
+export interface AskResult {
+  answer: string | null;
+  answer_skipped_reason: string | null;
+  citations: Citation[];
+  table: AskTableAnswer | null;
+}
+
 export interface Asset {
   id: string;
   kind: string;
@@ -645,6 +660,17 @@ export const api = {
     system?: string;
   }) =>
     request<ComparisonResult>("/api/v1/comparisons", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  /** Сквозной вопрос по документам и/или таблице. */
+  askData: (input: {
+    question: string;
+    kb_id?: string | null;
+    table_asset_id?: string | null;
+    chat_model_profile_id?: string | null;
+  }) =>
+    request<AskResult>("/api/v1/ask", {
       method: "POST",
       body: JSON.stringify(input),
     }),

@@ -260,20 +260,20 @@ async def _iter_upload(file: UploadFile):
         yield chunk
 
 
-@router.post("/{kb_id}/query", response_model=QueryResult)
-async def query_knowledge_base(
-    kb_id: uuid.UUID,
-    payload: QueryRequest,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
-) -> QueryResult:
-    """Выполняет retrieval по базе знаний с цитатами (embedding оплачивается)."""
-    kb = await _owned_kb(session, kb_id, user)
+async def _retrieve_citations(
+    session: AsyncSession,
+    user: User,
+    kb: KnowledgeBase,
+    text: str,
+    top_k: int,
+) -> list[Citation]:
+    """Извлекает цитаты из базы знаний (embedding + гибридный rerank).
+
+    Общий retrieval-хвост: используется и обычным query, и сквозным сценарием
+    «таблицы + документы». Embedding запроса проходит через бюджетный контур.
+    """
     connection, model = await _embedding_connection(session, kb)
 
-    # Embedding запроса — платный вызов: цена обязательна, бюджет резервируется
-    # ДО вызова, расход фиксируется после (смотри billing.py). Без цены вызов
-    # не выполняется, как и в чате.
     price = await get_latest_price(session, model.id)
     if price is None:
         raise HTTPException(
@@ -284,18 +284,16 @@ async def query_knowledge_base(
         session,
         user.id,
         price=price,
-        units=embedding_units(payload.text, "rag_query_embedding"),
+        units=embedding_units(text, "rag_query_embedding"),
     )
 
     adapter = get_adapter(connection.provider_type)
     try:
-        result = await adapter.embed(connection, [payload.text], model.external_model_id)
+        result = await adapter.embed(connection, [text], model.external_model_id)
     except Exception:
         await cancel_external_call(session, billing=billing)
         raise
 
-    # Фиксируем расход сразу после ответа провайдера: сбой дальнейшей
-    # обработки вектора не должен скрывать уже понесённый расход.
     await settle_external_call(
         session,
         user_id=user.id,
@@ -306,10 +304,7 @@ async def query_knowledge_base(
     )
     query_vector = result.vectors[0]
 
-    # Извлекаем кандидатов с запасом (fetch_factor), чтобы гибридный rerank мог
-    # поднять чанки с точным лексическим совпадением, которые слабо матчатся по
-    # вектору. Затем оставляем top_k.
-    fetch_count = max(payload.top_k * 3, 10)
+    fetch_count = max(top_k * 3, 10)
     hits = await get_vector_store().search(
         collection_name(kb.id, kb.embedding_version), query_vector, fetch_count
     )
@@ -317,14 +312,12 @@ async def query_knowledge_base(
     items: list[tuple[str, str, float]] = []
     for hit in hits:
         items.append((hit.id, await _chunk_text(session, hit.id), hit.score))
-    reranked = hybrid_rerank(payload.text, items, payload.top_k)
+    reranked = hybrid_rerank(text, items, top_k)
     hit_by_id = {hit.id: hit for hit in hits}
 
     citations: list[Citation] = []
-    for item_id, text in reranked:
+    for item_id, chunk_text in reranked:
         hit = hit_by_id[item_id]
-        # Порог релевантности остаётся плотным (cosine): он отделяет «похожий
-        # мусор» от реального совпадения, а порядок/отбор улучшает RRF.
         if hit.score < MIN_RELEVANCE:
             continue
         document_id = hit.payload.get("document_id") or ""
@@ -334,11 +327,24 @@ async def query_knowledge_base(
                 chunk_id=item_id,
                 document_id=document_id,
                 document_title=document.title if document else "—",
-                text=text,
+                text=chunk_text,
                 page=hit.payload.get("page"),
                 score=hit.score,
             )
         )
+    return citations
+
+
+@router.post("/{kb_id}/query", response_model=QueryResult)
+async def query_knowledge_base(
+    kb_id: uuid.UUID,
+    payload: QueryRequest,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> QueryResult:
+    """Выполняет retrieval по базе знаний с цитатами (embedding оплачивается)."""
+    kb = await _owned_kb(session, kb_id, user)
+    citations = await _retrieve_citations(session, user, kb, payload.text, payload.top_k)
 
     answer: str | None = None
     answer_skipped_reason: str | None = None

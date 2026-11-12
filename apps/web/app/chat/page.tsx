@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Database,
   Menu,
   MoreHorizontal,
   Plus,
@@ -75,6 +76,9 @@ import {
   ProtectionPreview,
   PromptTemplate,
   ComparisonItem,
+  Asset,
+  AskResult,
+  KnowledgeBase,
   UsageRecord,
   UsageSummary,
 } from "@/lib/api";
@@ -184,6 +188,17 @@ export default function ChatPage() {
   const [compareResults, setCompareResults] = useState<ComparisonItem[]>([]);
   const [compareBusy, setCompareBusy] = useState(false);
   const [compareError, setCompareError] = useState<string | null>(null);
+  // Сквозной вопрос «документы + таблица».
+  const [askOpen, setAskOpen] = useState(false);
+  const [askQuestion, setAskQuestion] = useState("");
+  const [askKb, setAskKb] = useState("");
+  const [askTable, setAskTable] = useState("");
+  const [askModel, setAskModel] = useState("");
+  const [askResult, setAskResult] = useState<AskResult | null>(null);
+  const [askBusy, setAskBusy] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
+  const [askKbs, setAskKbs] = useState<KnowledgeBase[]>([]);
+  const [askTables, setAskTables] = useState<Asset[]>([]);
   // Пагинация списка диалогов.
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -1041,6 +1056,47 @@ export default function ChatPage() {
 
   const priceMissing = Boolean(error && error.toLowerCase().includes("цена"));
 
+  /** Открывает сквозной вопрос и подгружает базы знаний и таблицы. */
+  async function openAsk() {
+    setAskOpen(true);
+    try {
+      const [kbs, assets] = await Promise.all([
+        api.knowledgeBases().catch(() => [] as KnowledgeBase[]),
+        api.assets().catch(() => [] as Asset[]),
+      ]);
+      setAskKbs(kbs);
+      setAskTables(
+        assets.filter((a) => /\.(csv|xlsx|xls)$/i.test(a.original_name)),
+      );
+    } catch {
+      // Списки не критичны: поля можно оставить пустыми.
+    }
+  }
+
+  /** Отправляет сквозной вопрос (документы и/или таблица). */
+  async function runAsk() {
+    const question = askQuestion.trim();
+    if (!question || askBusy) return;
+    setAskBusy(true);
+    setAskError(null);
+    setAskResult(null);
+    try {
+      const result = await api.askData({
+        question,
+        kb_id: askKb || null,
+        table_asset_id: askTable || null,
+        chat_model_profile_id: askModel || selectedModel || null,
+      });
+      setAskResult(result);
+    } catch (err) {
+      setAskError(
+        err instanceof Error ? err.message : "Не удалось получить ответ.",
+      );
+    } finally {
+      setAskBusy(false);
+    }
+  }
+
   // Ширина сайдбара: живёт в состоянии и не сохраняется, чтобы при смене окна
   // панель не «залипала» в неудобном размере.
   const [sidebarWidth, setSidebarWidth] = useState(260);
@@ -1441,6 +1497,16 @@ export default function ChatPage() {
               Системный промпт — настройка уровня диалога, поэтому живёт здесь,
               а не в композере (у композера — параметры следующего сообщения). */}
           <div className="flex items-center justify-end gap-1 border-b px-3 py-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void openAsk()}
+              aria-label="Спросить по документам и таблице"
+              title="Сквозной вопрос: документы + таблица"
+            >
+              <Database />
+              Спросить
+            </Button>
             <Button
               variant="ghost"
               size="sm"
@@ -1847,6 +1913,155 @@ export default function ChatPage() {
               }
             >
               {compareBusy ? "Сравнение…" : "Сравнить"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Сквозной вопрос: документы (RAG) + таблица (авто-SQL) в одном ответе. */}
+      <Dialog
+        open={askOpen}
+        onOpenChange={(open) => !open && setAskOpen(false)}
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Спросить по документам и таблице</DialogTitle>
+            <DialogDescription>
+              Вопрос может опираться на базу знаний, на таблицу или на оба
+              источника сразу. Платные вызовы учитываются в бюджете.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="ask-question" className="text-pah-sm">
+              Вопрос
+            </Label>
+            <Textarea
+              id="ask-question"
+              value={askQuestion}
+              onChange={(e) => setAskQuestion(e.target.value)}
+              placeholder="Например: сколько строк в таблице и что сказано в договоре?"
+              className="min-h-20"
+            />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-2">
+              <Label htmlFor="ask-kb" className="text-pah-sm">
+                База знаний
+              </Label>
+              <select
+                id="ask-kb"
+                value={askKb}
+                onChange={(e) => setAskKb(e.target.value)}
+                className="bg-background border-input w-full rounded-md border px-2 py-1.5 text-pah-sm"
+              >
+                <option value="">Без документов</option>
+                {askKbs.map((kb) => (
+                  <option key={kb.id} value={kb.id}>
+                    {kb.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ask-table" className="text-pah-sm">
+                Таблица
+              </Label>
+              <select
+                id="ask-table"
+                value={askTable}
+                onChange={(e) => setAskTable(e.target.value)}
+                className="bg-background border-input w-full rounded-md border px-2 py-1.5 text-pah-sm"
+              >
+                <option value="">Без таблицы</option>
+                {askTables.map((asset) => (
+                  <option key={asset.id} value={asset.id}>
+                    {asset.original_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ask-model" className="text-pah-sm">
+                Модель
+              </Label>
+              <select
+                id="ask-model"
+                value={askModel}
+                onChange={(e) => setAskModel(e.target.value)}
+                className="bg-background border-input w-full rounded-md border px-2 py-1.5 text-pah-sm"
+              >
+                <option value="">Как в чате</option>
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.display_name || m.external_model_id}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {askError && (
+            <p className="text-destructive text-pah-sm" role="alert">
+              {askError}
+            </p>
+          )}
+
+          {askResult && (
+            <div className="space-y-3">
+              {askResult.answer && (
+                <div className="rounded-md border p-3 text-pah-sm">
+                  <MarkdownRenderer content={askResult.answer} />
+                </div>
+              )}
+              {askResult.table && (
+                <div className="rounded-md border p-3 text-pah-sm">
+                  <div className="mb-1 font-medium">Результат таблицы</div>
+                  <div className="max-h-40 overflow-auto">
+                    <table className="w-full text-pah-xs">
+                      <thead>
+                        <tr>
+                          {askResult.table.columns.map((c) => (
+                            <th
+                              key={c}
+                              className="border-b px-1 py-0.5 text-left"
+                            >
+                              {c}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {askResult.table.rows.map((row, index) => (
+                          <tr key={index}>
+                            {row.map((cell, i) => (
+                              <td key={i} className="border-b px-1 py-0.5">
+                                {String(cell)}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              {askResult.citations.length > 0 && (
+                <p className="text-muted-foreground text-pah-xs">
+                  Источников из документов: {askResult.citations.length}
+                </p>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAskOpen(false)}>
+              Закрыть
+            </Button>
+            <Button
+              onClick={() => void runAsk()}
+              disabled={askBusy || !askQuestion.trim()}
+            >
+              {askBusy ? "Думаю…" : "Спросить"}
             </Button>
           </DialogFooter>
         </DialogContent>
