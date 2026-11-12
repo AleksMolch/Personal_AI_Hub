@@ -82,6 +82,7 @@ type SendOptions = {
   reasoningDepth?: ReasoningDepth;
   temperature?: number;
   maxTokens?: number;
+  images?: string[];
 };
 
 /** Размер страницы списка диалогов (пагинация на сервере). */
@@ -574,6 +575,7 @@ export default function ChatPage() {
         cloudScanAcknowledged,
         options.temperature,
         options.maxTokens,
+        options.images,
       );
       subscribeGeneration(generation_id);
     } catch (err) {

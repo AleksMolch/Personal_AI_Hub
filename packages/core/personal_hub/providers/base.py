@@ -98,10 +98,16 @@ class RemoteModel:
 
 @dataclass
 class ChatMessage:
-    """Сообщение для отправки провайдеру."""
+    """Сообщение для отправки провайдеру.
+
+    `content` — текст; `images` — data-URL изображений (только для user-сообщений
+    и моделей с capability `vision`). Адаптер собирает из них мультимодальный
+    массив частей OpenAI-формата.
+    """
 
     role: str
     content: str
+    images: list[str] = field(default_factory=list)
 
 
 @dataclass

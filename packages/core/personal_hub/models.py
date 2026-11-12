@@ -206,6 +206,9 @@ class Message(Base, TimestampMixin):
     # уходит провайдеру и используется как контекст следующего turn: приватный
     # `content` никогда не отправляется в гибриде повторно.
     protection: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    # Изображения сообщения (data-URL, ADR-0009 срез 5). Храним inline для
+    # простоты; размер ограничен валидатором на входе (≤4, каждый ≤2.5 МБ).
+    images: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 

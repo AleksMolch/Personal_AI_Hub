@@ -26,6 +26,7 @@ import {
   SlidersHorizontal,
   Square,
   Trash2,
+  X,
 } from "lucide-react";
 
 import type { PromptTemplate } from "@/lib/api";
@@ -100,6 +101,7 @@ interface ChatInputProps {
       reasoningDepth?: ReasoningDepth;
       temperature?: number;
       maxTokens?: number;
+      images?: string[];
     },
   ) => void; /** Остановить текущую генерацию. */
   onStop?: () => void;
@@ -206,6 +208,9 @@ export function ChatInput({
   // не отправлять температуру/лимит, которые пользователь не задавал.
   const [temperature, setTemperature] = useState("");
   const [maxTokens, setMaxTokens] = useState("");
+  // Прикреплённые изображения (data-URL) для мультимодального ввода.
+  const [images, setImages] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   // Высота поля ввода: null — значение по умолчанию (min-h-20). Тянется за
   // верхнюю грань панели, чтобы увеличить область промпта.
   const [composerHeight, setComposerHeight] = useState<number | null>(null);
@@ -245,8 +250,29 @@ export function ChatInput({
       reasoningDepth: selected?.supportsReasoning ? reasoningDepth : undefined,
       temperature: parsedTemperature,
       maxTokens: parsedMaxTokens,
+      images,
     });
     onValueChange("");
+    setImages([]);
+  }
+
+  /** Читает выбранные файлы в data-URL (не больше 4, каждое до ~2 МБ). */
+  function onPickImages(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    const remaining = 4 - images.length;
+    if (remaining <= 0) return;
+    files.slice(0, remaining).forEach((file) => {
+      if (!file.type.startsWith("image/")) return;
+      if (file.size > 2 * 1024 * 1024) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          setImages((prev) => [...prev, reader.result as string]);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    event.target.value = "";
   }
 
   /** Enter отправляет, Shift+Enter добавляет строку. */
@@ -682,6 +708,36 @@ export function ChatInput({
           )}
         </div>
 
+        {images.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {images.map((dataUrl, index) => (
+              <span
+                key={index}
+                className="bg-muted flex items-center gap-1 rounded-md px-2 py-0.5 text-pah-xs"
+              >
+                {/* Превью — маленькая data-URL-картинка; оптимизация Next.Image
+                    здесь не нужна, это миниатюра пользовательского файла. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={dataUrl}
+                  alt=""
+                  className="size-5 rounded object-cover"
+                />
+                Изображение {index + 1}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setImages((prev) => prev.filter((_, i) => i !== index))
+                  }
+                  aria-label={`Убрать изображение ${index + 1}`}
+                >
+                  <X />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         <div className="relative">
           {/* Метка визуально скрыта, но обязана быть уникальной: имя
               «Сообщение» совпадало с placeholder'ом «Напишите сообщение…»,
@@ -709,15 +765,24 @@ export function ChatInput({
             disabled={isStreaming || noModels}
           />
           <div className="absolute right-2 bottom-2 flex gap-1">
-            {/* Прикрепление файлов появится вместе с передачей вложений в чат;
-                кнопка не показывается, пока этого нет в API. */}
+            {/* Прикрепление изображений (vision): файл читается в data-URL и
+                передаётся в следующем сообщении. */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={onPickImages}
+            />
             <Button
               type="button"
               size="icon"
               variant="ghost"
-              disabled
-              aria-label="Прикрепить файл (пока недоступно)"
-              title="Прикрепление файлов к сообщению пока не поддерживается"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isStreaming || noModels}
+              aria-label="Прикрепить изображение"
+              title="Прикрепить изображение (до 4, для моделей с vision)"
             >
               <Paperclip />
             </Button>

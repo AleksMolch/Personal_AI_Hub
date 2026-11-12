@@ -215,6 +215,8 @@ export interface Message {
   model_snapshot: Record<string, unknown>;
   /** Снимок защиты: mode, preparation_id, sanitized, restored. */
   protection?: Record<string, unknown>;
+  /** Изображения сообщения (data-URL, ADR-0009 срез 5). */
+  images?: string[];
   error_code: string | null;
 }
 
@@ -568,6 +570,8 @@ export const api = {
     temperature?: number,
     /** Лимит выходных токенов. */
     maxTokens?: number,
+    /** Изображения (data-URL) для мультимодального ввода. */
+    images?: string[],
   ) =>
     request<{ generation_id: string }>(
       `/api/v1/conversations/${conversationId}/messages`,
@@ -582,6 +586,7 @@ export const api = {
           cloud_scan_acknowledged: cloudScanAcknowledged ?? false,
           temperature: temperature ?? null,
           max_tokens: maxTokens ?? null,
+          images: images ?? [],
         }),
       },
     ),

@@ -17,6 +17,7 @@ from personal_hub.providers.base import (
     Capability,
     ChatChunk,
     ChatCompletionResult,
+    ChatMessage,
     ChatRequest,
     EmbeddingResult,
     HealthResult,
@@ -42,6 +43,22 @@ _REASONING_OBJECT_PROVIDERS = frozenset({"openrouter"})
 # о поддержке управления рассуждениями.
 _REASONING_MARKERS = frozenset({"reasoning", "reasoning_effort", "include_reasoning"})
 
+
+def _to_payload_message(message: ChatMessage) -> dict:
+    """Собирает сообщение для тела запроса провайдера.
+
+    Для user-сообщения с изображениями контент становится OpenAI-массивом
+    частей: текст + `image_url` с data-URL. Иначе контент — простая строка.
+    """
+    if message.role == "user" and message.images:
+        parts: list[dict] = [{"type": "text", "text": message.content}]
+        parts.extend(
+            {"type": "image_url", "image_url": {"url": url}}
+            for url in message.images
+        )
+        return {"role": message.role, "content": parts}
+    return {"role": message.role, "content": message.content}
+
 # Понятные сообщения для пользователя по нормализованному коду.
 _MESSAGES: dict[str, str] = {
     "PROVIDER_UNAUTHORIZED": "Неверный API-ключ (401).",
@@ -50,6 +67,26 @@ _MESSAGES: dict[str, str] = {
     "PROVIDER_RATE_LIMITED": "Провайдер временно ограничил частоту запросов (429).",
     "PROVIDER_ERROR": "Ошибка провайдера.",
 }
+
+
+def _declares_vision(item: dict) -> bool:
+    """Определяет поддержку изображений по данным провайдера.
+
+    OpenAI-совместимые провайдеры сообщают модальности по-разному: `modalities`
+    или `input_modalities` (список с "image"), OpenRouter — `architecture.modality`
+    (например, "text+image"). Смотрим только явные декларации, не имя модели.
+    """
+    markers = ("image", "text+image", "multimodal")
+    for key in ("modalities", "input_modalities"):
+        value = item.get(key)
+        if isinstance(value, list) and "image" in value:
+            return True
+    arch = item.get("architecture")
+    if isinstance(arch, dict):
+        modality = str(arch.get("modality") or "").lower()
+        if any(marker in modality for marker in markers):
+            return True
+    return False
 
 
 def _declares_reasoning(item: dict) -> bool:
@@ -200,6 +237,8 @@ class OpenAICompatibleAdapter:
             # догадка по имени модели.
             if _declares_reasoning(item):
                 capabilities.append(Capability.REASONING.value)
+            if _declares_vision(item):
+                capabilities.append(Capability.VISION.value)
             models.append(
                 RemoteModel(
                     external_id=external_id,
@@ -220,7 +259,7 @@ class OpenAICompatibleAdapter:
         провайдеров. Ошибки нормализуются в ProviderError.
         """
         url = f"{connection.base_url.rstrip('/')}/chat/completions"
-        messages: list[dict] = [{"role": m.role, "content": m.content} for m in request.messages]
+        messages: list[dict] = [_to_payload_message(m) for m in request.messages]
         if request.system:
             messages.insert(0, {"role": "system", "content": request.system})
         payload: dict = {"model": request.model, "messages": messages, "stream": True}
@@ -291,7 +330,7 @@ class OpenAICompatibleAdapter:
     ) -> ChatCompletionResult:
         """Непотоковый чат (для RAG-синтеза): текст ответа и usage."""
         url = f"{connection.base_url.rstrip('/')}/chat/completions"
-        messages: list[dict] = [{"role": m.role, "content": m.content} for m in request.messages]
+        messages: list[dict] = [_to_payload_message(m) for m in request.messages]
         if request.system:
             messages.insert(0, {"role": "system", "content": request.system})
         payload: dict = {"model": request.model, "messages": messages, "stream": False}

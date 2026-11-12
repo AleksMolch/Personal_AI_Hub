@@ -410,3 +410,62 @@ async def test_list_conversations_search_and_pagination(
     )
     assert len(page.json()) == 1
     assert int(page.headers["x-total-count"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_vision_image_is_sent_as_content_part(
+    client: AsyncClient, mock_provider
+):
+    """Изображение уходит провайдеру как часть контента OpenAI-формата."""
+    store: list[dict] = []
+    mock_provider.spec["POST /chat/completions"] = _capture_sse(store, "ok")
+    headers, conversation_id, model_id = await _setup(client, mock_provider)
+
+    # Переобъявляем модель с поддержкой изображений и повторно синхронизируем.
+    mock_provider.spec["GET /models"] = (
+        200,
+        json.dumps(
+            {"data": [{"id": "gpt-x", "name": "GPT X", "modalities": ["text", "image"]}]}
+        ),
+    )
+    provider_id = (await client.get("/api/v1/providers", headers=headers)).json()[0]["id"]
+    await client.post(
+        f"/api/v1/providers/{provider_id}/sync-models", headers=headers
+    )
+
+    created = await client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        json={
+            "content": "Что на картинке?",
+            "model_profile_id": model_id,
+            "images": ["data:image/png;base64,AAAA"],
+        },
+        headers=headers,
+    )
+    assert created.status_code == 200
+    await _collect_events(client, created.json()["generation_id"], headers)
+
+    content = store[-1]["messages"][-1]["content"]
+    assert isinstance(content, list)
+    assert content[0] == {"type": "text", "text": "Что на картинке?"}
+    assert content[-1]["type"] == "image_url"
+
+
+@pytest.mark.asyncio
+async def test_vision_rejected_without_capability(
+    client: AsyncClient, mock_provider
+):
+    """Модель без vision отклоняет изображение понятной ошибкой."""
+    headers, conversation_id, model_id = await _setup(client, mock_provider)
+
+    resp = await client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        json={
+            "content": "Привет",
+            "model_profile_id": model_id,
+            "images": ["data:image/png;base64,AAAA"],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    assert "vision" in resp.text.lower()

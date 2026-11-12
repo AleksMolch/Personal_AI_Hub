@@ -367,6 +367,22 @@ async def create_message(
                 "preview заново. (PROTECTION_DIGEST_MISMATCH)",
             )
 
+    # Изображения допустимы только для моделей с vision и вне гибрида (в
+    # гибриде изображение ушло бы без псевдонимизации). Проверяем до сборки
+    # контекста, чтобы не готовить payload впустую.
+    image_urls = payload.images or []
+    if image_urls:
+        if Capability.VISION.value not in (model.capabilities or []):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Выбранная модель не поддерживает изображения (vision).",
+            )
+        if mode == ProtectionMode.PROTECTED_HYBRID:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Изображения не поддерживаются в режиме «Защищённый гибрид».",
+            )
+
     # Собираем контекст: в гибриде — подтверждённые sanitized-версии, иначе
     # исходные тексты. Для истории приоритет у собственного снимка сообщения:
     # он сохранён при генерации и не зависит от текущего словаря.
@@ -383,13 +399,21 @@ async def create_message(
                 text = message.content
         else:
             text = message.content
-        chat_messages.append(ChatMessage(role=message.role, content=text))
+        # История user-сообщений может содержать свои изображения (data-URL).
+        history_images = (
+            list(message.images or []) if message.role == "user" else []
+        )
+        chat_messages.append(
+            ChatMessage(role=message.role, content=text, images=history_images)
+        )
 
     if preparation is not None:
         user_sanitized = sanitized_list[-1] if sanitized_list else payload.content
     else:
         user_sanitized = payload.content
-    chat_messages.append(ChatMessage(role="user", content=user_sanitized))
+    chat_messages.append(
+        ChatMessage(role="user", content=user_sanitized, images=image_urls)
+    )
 
     # Веб-поиск выполняется ДО обращения к LLM и только один раз на запрос:
     # автоматические «уточняющие» поиски модели недопустимы, так как
@@ -493,6 +517,7 @@ async def create_message(
         status=MessageStatus.COMPLETED.value,
         model_profile_id=model.id,
         protection=user_protection,
+        images=image_urls,
     )
     session.add(user_message)
     await session.flush()
@@ -751,6 +776,8 @@ async def _spawn_generation(
             "reasoning_depth": reasoning_depth.value if reasoning_depth else None,
             "temperature": temperature,
             "max_tokens": max_tokens,
+            # Число изображений в запросе (для прозрачности снимка).
+            "images": sum(len(m.images) for m in chat_messages),
             "context": {
                 "kept": context_kept,
                 "dropped": context_dropped,

@@ -263,6 +263,8 @@ class MessageOut(BaseModel):
     model_snapshot: dict
     # Снимок защиты (ADR-0007): режим, preparation_id, sanitized-текст.
     protection: dict = Field(default_factory=dict)
+    # Изображения сообщения (data-URL, ADR-0009 срез 5).
+    images: list[str] = Field(default_factory=list)
     error_code: str | None
     created_at: datetime
 
@@ -311,6 +313,22 @@ class MessageCreate(BaseModel):
     # при несовместимости провайдер вернёт ошибку, которую покажем пользователю.
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     max_tokens: int | None = Field(default=None, ge=1, le=1_000_000)
+    # Изображения (data-URL) для мультимодального ввода. Только для моделей с
+    # capability `vision`; проверяются числом и размером здесь, поддержка — в
+    # обработчике.
+    images: list[str] = Field(default_factory=list)
+
+    @field_validator("images")
+    @classmethod
+    def _validate_images(cls, value: list[str]) -> list[str]:
+        if len(value) > 4:
+            raise ValueError("не больше 4 изображений")
+        for url in value:
+            if not isinstance(url, str) or not url.startswith("data:image/"):
+                raise ValueError("изображение должно быть data-URL image/*")
+            if len(url) > 2_600_000:
+                raise ValueError("изображение слишком большое (лимит ~2 МБ)")
+        return value
 
 
 class MessageUpdate(BaseModel):
