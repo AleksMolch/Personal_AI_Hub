@@ -412,3 +412,17 @@ Windows clean install закрыт (2026-09-16), live provider certification з�
 - Ограничения: предупреждения облака — UX-слой (прямой вызов API их минует);
   фильтрация диалогов клиентская, серверная пагинация — следующий шаг;
   суммаризация контекста не реализована, только обрезка.
+
+## ADR-0009 — дистрибуция «как приложение» и gap-анализ
+
+- PWA: `apps/web/public/manifest.json` + иконки (`infra/scripts/gen_icons.py`,
+  бинарники генерируются, в Git не хранятся) + метаданные в `app/layout.tsx`;
+  приложение устанавливается из Chrome/Edge как окно.
+- Windows-инсталлятор: `infra/scripts/install_windows.ps1` (без make/Git Bash) —
+  проверка Docker, генерация `.env`, `docker compose up -d --build`, readiness,
+  открытие браузера; идемпотентен.
+- Документы: `docs/PRODUCT_GAP_ANALYSIS.md` (пробелы и приоритеты),
+  `docs/adr/0009-desktop-distribution.md`, `docs/QUICK_START_USER_RU.md`.
+- Ограничение: Docker остаётся системным требованием; нативный bundle без
+  Docker (вариант D) отложен до отдельного ADR; service worker/offline не
+  добавлен.

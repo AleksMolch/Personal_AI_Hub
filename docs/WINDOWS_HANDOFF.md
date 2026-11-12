@@ -72,6 +72,10 @@ OpenAI-compatible, sync-models с импортом цен), потоковый �
 # 2. Сгенерируй .env со случайными секретами (или скопируй .env.example вручную).
 bash infra/scripts/bootstrap.sh
 
+# Альтернатива одной командой (чистый PowerShell, без Git Bash/make):
+# powershell -ExecutionPolicy Bypass -File infra\scripts\install_windows.ps1
+#   — проверяет Docker, создаёт .env, поднимает стек и открывает http://localhost:3000.
+
 # 3. Подними стек (сборка + запуск).
 docker compose up -d --build
 
@@ -95,7 +99,7 @@ bash infra/scripts/health.sh
 ## 6. Таблица перевода команд Makefile → Windows
 | `make` (macOS/Linux) | Windows (Git Bash / PowerShell) |
 | --- | --- |
-| `make bootstrap` | `bash infra/scripts/bootstrap.sh` |
+| `make bootstrap` | `bash infra/scripts/bootstrap.sh` или `powershell -ExecutionPolicy Bypass -File infra\scripts\install_windows.ps1` |
 | `make up` | `docker compose up -d --build` |
 | `make down` | `docker compose down` |
 | `make status` | `docker compose ps` |
